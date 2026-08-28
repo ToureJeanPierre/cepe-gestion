@@ -107,7 +107,7 @@ if (isset($_GET['supprimer_lien'])) {
 // DONNÉES
 // ==========================================
 $centres = $pdo->query("
-    SELECT c.id as centre_id, e.nom as nom_centre, e.code_administratif as code_centre
+    SELECT c.id as centre_id, e.nom as nom_centre, e.code_dsps as code_centre
     FROM centres c
     JOIN ecoles e ON c.ecole_id = e.id
     ORDER BY e.nom ASC
@@ -155,7 +155,7 @@ include '../views/layouts/header.php';
         <?php if (count($centres) > 0): ?>
             <?php foreach ($centres as $centre): 
                 $stmtEcoles = $pdo->prepare("
-                    SELECT e.id, e.nom, e.code_administratif,
+                    SELECT e.id, e.nom, e.code_dsps,
                            (SELECT COUNT(*) FROM candidats WHERE ecole_origine_id = e.id) as effectif_candidats
                     FROM ecole_centre ec
                     JOIN ecoles e ON ec.ecole_id = e.id
@@ -187,7 +187,7 @@ include '../views/layouts/header.php';
                             <thead class="table-light">
                                 <tr>
                                     <th>École Composante</th>
-                                    <th>Code Admin</th>
+                                    <th>Code DSPS</th>
                                     <th class="text-center">Candidats</th>
                                     <th class="text-center">Action</th>
                                 </tr>
@@ -197,7 +197,7 @@ include '../views/layouts/header.php';
                                     <?php foreach ($ecolesRattachees as $ecole): ?>
                                     <tr>
                                         <td><strong><?= htmlspecialchars($ecole['nom']) ?></strong></td>
-                                        <td><?= $ecole['code_administratif'] ? '<code>'.htmlspecialchars($ecole['code_administratif']).'</code>' : '<span class="text-muted">Aucun</span>' ?></td>
+                                        <td><?= $ecole['code_dsps'] ? '<code>'.htmlspecialchars($ecole['code_dsps']).'</code>' : '<span class="text-muted">Aucun</span>' ?></td>
                                         <td class="text-center fw-bold"><?= $ecole['effectif_candidats'] ?></td>
                                         <td class="text-center">
                                             <a href="?supprimer_lien=<?= $ecole['id'] ?>" 
@@ -227,16 +227,16 @@ include '../views/layouts/header.php';
 
     <!-- VOLET 2 : CODES OFFICIELS -->
     <div class="tab-pane fade" id="codes">
-        <div class="alert alert-info"><i class="bi bi-filter"></i> Affiche uniquement les écoles avec code administratif officiel.</div>
+        <div class="alert alert-info"><i class="bi bi-filter"></i> Affiche uniquement les écoles avec Code DSPS officiel.</div>
         <?php 
         $hasData = false;
         foreach ($centres as $centre): 
             $stmtOff = $pdo->prepare("
-                SELECT e.id, e.nom, e.code_administratif,
+                SELECT e.id, e.nom, e.code_dsps,
                        (SELECT COUNT(*) FROM candidats WHERE ecole_origine_id = e.id) as effectif_candidats
                 FROM ecole_centre ec
                 JOIN ecoles e ON ec.ecole_id = e.id
-                WHERE ec.centre_id = ? AND e.code_administratif IS NOT NULL AND e.code_administratif != ''
+                WHERE ec.centre_id = ? AND e.code_dsps IS NOT NULL AND e.code_dsps != ''
                 ORDER BY e.nom ASC
             ");
             $stmtOff->execute([$centre['centre_id']]);
@@ -257,7 +257,7 @@ include '../views/layouts/header.php';
                         <?php foreach ($ecolesOff as $ecole): ?>
                         <tr>
                             <td><?= htmlspecialchars($ecole['nom']) ?></td>
-                            <td><code><?= htmlspecialchars($ecole['code_administratif']) ?></code></td>
+                            <td><code><?= htmlspecialchars($ecole['code_dsps']) ?></code></td>
                             <td class="text-center fw-bold"><?= $ecole['effectif_candidats'] ?></td>
                         </tr>
                         <?php endforeach; ?>
