@@ -1,0 +1,21 @@
+{
+    "name": "iepp/cepe-gestion",
+    "description": "Application de gestion du CEPE - IEPP Yopougon-Niangon",
+    "type": "project",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Iepp\\CepeGestion\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "IEPP Yopougon-Niangon"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "phpoffice/phpspreadsheet": "^5.9",
+        "dompdf/dompdf": "^3.1"
+    }
+}
