@@ -1,93 +1,1226 @@
+<?php
+
+/*
+|--------------------------------------------------------------------------
+| HEADER PRINCIPAL — APPLICATION CEPE
+|--------------------------------------------------------------------------
+*/
+
+$currentPage = basename($_SERVER['PHP_SELF']);
+
+$pageTitle = $pageTitle ?? 'Gestion CEPE';
+
+?>
+
 <!DOCTYPE html>
 <html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $pageTitle ?? 'Gestion CEPE' ?> - IEPP Yopougon-Niangon</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; background-color: #f4f6f9; }
-        .sidebar {
-            min-height: 100vh;
-            background: #2c3e50;
-            color: white;
-            padding-top: 20px;
-        }
-        .sidebar .nav-link {
-            color: #ecf0f1;
-            padding: 12px 20px;
-            border-radius: 5px;
-            margin: 3px 10px;
-        }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active {
-            background: #3498db;
-            color: white;
-        }
-        .sidebar .nav-link i { margin-right: 10px; }
-        .main-content { padding: 30px; }
-        .card-header { background: #2c3e50; color: white; }
-    </style>
-</head>
-<body>
-<div class="container-fluid">
-    <div class="row">
-        <!-- SIDEBAR / MENU PRINCIPAL -->
-        <nav class="col-md-2 sidebar">
-            <h4 class="text-center mb-4">🎓 CEPE Gestion</h4>
-            <ul class="nav flex-column">
-                <li class="nav-item">
-                    <a class="nav-link" href="index.php">
-                        <i class="bi bi-house-door"></i> Accueil
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="ecoles.php">
-                        <i class="bi bi-building"></i> Écoles
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="enseignants.php">
-                        <i class="bi bi-person-badge"></i> Enseignants
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="candidats.php">
-                        <i class="bi bi-people"></i> Candidats
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="centres.php">
-                        <i class="bi bi-geo-alt"></i> Centres
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="plans.php">
-                        <i class="bi bi-map"></i> Plans de salle
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="affectations.php">
-                        <i class="bi bi-person-check"></i> Affectations
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="documents.php">
-                        <i class="bi bi-file-earmark-pdf"></i> Documents
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="sauvegarde.php">
-                        <i class="bi bi-hdd"></i> Sauvegarde
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="parametres.php">
-                        <i class="bi bi-gear"></i> Paramètres
-                    </a>
-                </li>
-            </ul>
-        </nav>
 
-        <!-- CONTENU PRINCIPAL -->
-        <main class="col-md-10 main-content">
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        <?= htmlspecialchars($pageTitle) ?>
+        - Gestion CEPE
+    </title>
+
+
+    <!-- Bootstrap -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+    >
+
+
+    <!-- Bootstrap Icons -->
+    <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
+        rel="stylesheet"
+    >
+
+
+    <!-- Police -->
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com"
+    >
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin
+    >
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+    >
+
+
+    <style>
+
+        /* ======================================================
+           VARIABLES
+        ====================================================== */
+
+        :root {
+
+            --ci-orange: #f58220;
+            --ci-green: #009e49;
+
+            --primary: #17365d;
+            --primary-dark: #102944;
+
+            --text-dark: #263238;
+            --text-muted: #6c757d;
+
+            --background: #f5f7fa;
+            --white: #ffffff;
+
+            --border: #e5e9ef;
+
+            --sidebar-width: 260px;
+
+            --shadow:
+                0 2px 10px rgba(0, 0, 0, 0.06);
+
+            --transition:
+                all 0.2s ease;
+        }
+
+
+        /* ======================================================
+           BASE
+        ====================================================== */
+
+        * {
+            box-sizing: border-box;
+        }
+
+
+        body {
+
+            margin: 0;
+
+            font-family:
+                'Inter',
+                'Segoe UI',
+                Arial,
+                sans-serif;
+
+            background-color: var(--background);
+
+            color: var(--text-dark);
+
+            font-size: 14px;
+        }
+
+
+        a {
+            text-decoration: none;
+        }
+
+
+        /* ======================================================
+           BARRE INSTITUTIONNELLE SUPÉRIEURE
+        ====================================================== */
+
+        .top-government-bar {
+
+            height: 6px;
+
+            background:
+                linear-gradient(
+                    to right,
+                    var(--ci-orange) 0%,
+                    var(--ci-orange) 33.33%,
+                    #ffffff 33.33%,
+                    #ffffff 66.66%,
+                    var(--ci-green) 66.66%,
+                    var(--ci-green) 100%
+                );
+        }
+
+
+        /* ======================================================
+           STRUCTURE
+        ====================================================== */
+
+        .app-wrapper {
+
+            display: flex;
+
+            min-height: calc(100vh - 6px);
+        }
+
+
+        /* ======================================================
+           SIDEBAR
+        ====================================================== */
+
+        .sidebar {
+
+            position: fixed;
+
+            top: 6px;
+            left: 0;
+            bottom: 0;
+
+            width: var(--sidebar-width);
+
+            background:
+                linear-gradient(
+                    180deg,
+                    var(--primary-dark) 0%,
+                    var(--primary) 100%
+                );
+
+            color: white;
+
+            overflow-y: auto;
+
+            z-index: 1000;
+
+            box-shadow:
+                2px 0 10px rgba(0, 0, 0, 0.08);
+        }
+
+
+        /* Bande orange/verte discrète */
+
+        .sidebar-brand-line {
+
+            height: 4px;
+
+            background:
+                linear-gradient(
+                    to right,
+                    var(--ci-orange) 0%,
+                    var(--ci-orange) 50%,
+                    var(--ci-green) 50%,
+                    var(--ci-green) 100%
+                );
+        }
+
+
+        /* ======================================================
+           IDENTITÉ
+        ====================================================== */
+
+        .sidebar-brand {
+
+            padding: 22px 20px 18px;
+
+            border-bottom:
+                1px solid
+                rgba(255, 255, 255, 0.10);
+        }
+
+
+        .sidebar-brand-title {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 12px;
+
+            color: white;
+
+            font-size: 18px;
+
+            font-weight: 700;
+
+            margin-bottom: 5px;
+        }
+
+
+        .sidebar-brand-icon {
+
+            width: 40px;
+            height: 40px;
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            border-radius: 10px;
+
+            background:
+                rgba(255, 255, 255, 0.10);
+
+            font-size: 21px;
+        }
+
+
+        .sidebar-brand-subtitle {
+
+            margin-left: 52px;
+
+            color:
+                rgba(255, 255, 255, 0.65);
+
+            font-size: 11px;
+
+            line-height: 1.4;
+        }
+
+
+        /* ======================================================
+           ANNÉE ACTIVE
+        ====================================================== */
+
+        .sidebar-year {
+
+            margin: 18px 16px;
+
+            padding: 12px 14px;
+
+            border-radius: 8px;
+
+            background:
+                rgba(255, 255, 255, 0.07);
+
+            border:
+                1px solid
+                rgba(255, 255, 255, 0.10);
+        }
+
+
+        .sidebar-year-label {
+
+            display: block;
+
+            color:
+                rgba(255, 255, 255, 0.55);
+
+            font-size: 10px;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.7px;
+
+            margin-bottom: 4px;
+        }
+
+
+        .sidebar-year-value {
+
+            color: white;
+
+            font-size: 14px;
+
+            font-weight: 600;
+        }
+
+
+        .sidebar-year i {
+
+            color: var(--ci-orange);
+
+            margin-right: 6px;
+        }
+
+
+        /* ======================================================
+           MENU
+        ====================================================== */
+
+        .sidebar-section {
+
+            padding:
+                8px 20px 6px;
+
+            color:
+                rgba(255, 255, 255, 0.40);
+
+            font-size: 10px;
+
+            font-weight: 700;
+
+            text-transform: uppercase;
+
+            letter-spacing: 1px;
+        }
+
+
+        .sidebar .nav {
+
+            padding:
+                0 12px 15px;
+        }
+
+
+        .sidebar .nav-link {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 12px;
+
+            min-height: 43px;
+
+            margin: 3px 0;
+
+            padding:
+                10px 13px;
+
+            border-radius: 7px;
+
+            color:
+                rgba(255, 255, 255, 0.78);
+
+            font-size: 13px;
+
+            font-weight: 500;
+
+            transition: var(--transition);
+        }
+
+
+        .sidebar .nav-link i {
+
+            width: 20px;
+
+            text-align: center;
+
+            font-size: 16px;
+
+            color:
+                rgba(255, 255, 255, 0.60);
+        }
+
+
+        .sidebar .nav-link:hover {
+
+            background:
+                rgba(255, 255, 255, 0.08);
+
+            color: white;
+        }
+
+
+        .sidebar .nav-link:hover i {
+
+            color: white;
+        }
+
+
+        .sidebar .nav-link.active {
+
+            background:
+                rgba(245, 130, 32, 0.18);
+
+            color: white;
+
+            font-weight: 600;
+
+            border-left:
+                3px solid
+                var(--ci-orange);
+
+            padding-left: 10px;
+        }
+
+
+        .sidebar .nav-link.active i {
+
+            color: var(--ci-orange);
+        }
+
+
+        /* ======================================================
+           CONTENU PRINCIPAL
+        ====================================================== */
+
+        .main-area {
+
+            width: calc(100% - var(--sidebar-width));
+
+            margin-left: var(--sidebar-width);
+
+            min-height: calc(100vh - 6px);
+
+            display: flex;
+
+            flex-direction: column;
+        }
+
+
+        /* ======================================================
+           TOPBAR
+        ====================================================== */
+
+        .topbar {
+
+            min-height: 68px;
+
+            background: white;
+
+            border-bottom:
+                1px solid var(--border);
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: space-between;
+
+            padding:
+                0 28px;
+
+            position: sticky;
+
+            top: 0;
+
+            z-index: 900;
+        }
+
+
+        .topbar-title {
+
+            font-size: 14px;
+
+            font-weight: 600;
+
+            color: var(--text-dark);
+        }
+
+
+        .topbar-subtitle {
+
+            color: var(--text-muted);
+
+            font-size: 12px;
+        }
+
+
+        .topbar-year {
+
+            display: inline-flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            padding:
+                8px 13px;
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 7px;
+
+            background: #fafbfc;
+
+            color: var(--primary);
+
+            font-size: 12px;
+
+            font-weight: 600;
+        }
+
+
+        .topbar-year i {
+
+            color: var(--ci-orange);
+        }
+
+
+        /* ======================================================
+           ZONE DE CONTENU
+        ====================================================== */
+
+        .main-content {
+
+            padding: 28px;
+
+            flex: 1;
+        }
+
+
+        /* ======================================================
+           TITRES DE PAGE
+        ====================================================== */
+
+        .page-heading {
+
+            margin-bottom: 25px;
+        }
+
+
+        .page-heading h1,
+        .page-heading h2 {
+
+            color: var(--primary);
+
+            font-size: 23px;
+
+            font-weight: 700;
+
+            margin-bottom: 5px;
+        }
+
+
+        .page-heading p {
+
+            margin: 0;
+
+            color: var(--text-muted);
+
+            font-size: 13px;
+        }
+
+
+        /* ======================================================
+           CARTES
+        ====================================================== */
+
+        .card {
+
+            border:
+                1px solid var(--border);
+
+            border-radius: 9px;
+
+            box-shadow: var(--shadow);
+
+            background: white;
+        }
+
+
+        .card-header {
+
+            background: white;
+
+            color: var(--primary);
+
+            border-bottom:
+                1px solid var(--border);
+
+            font-weight: 600;
+        }
+
+
+        /* ======================================================
+           BOUTONS
+        ====================================================== */
+
+        .btn {
+
+            border-radius: 6px;
+
+            font-size: 13px;
+
+            font-weight: 500;
+
+            padding:
+                8px 14px;
+        }
+
+
+        .btn-primary {
+
+            background-color: var(--primary);
+
+            border-color: var(--primary);
+        }
+
+
+        .btn-primary:hover {
+
+            background-color: var(--primary-dark);
+
+            border-color: var(--primary-dark);
+        }
+
+
+        /* ======================================================
+           TABLEAUX
+        ====================================================== */
+
+        .table {
+
+            font-size: 13px;
+        }
+
+
+        .table thead th {
+
+            color: var(--primary);
+
+            font-size: 11px;
+
+            font-weight: 700;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.3px;
+
+            background: #f8f9fb;
+
+            border-bottom:
+                1px solid var(--border);
+
+            padding:
+                12px 14px;
+        }
+
+
+        .table tbody td {
+
+            padding:
+                11px 14px;
+
+            vertical-align: middle;
+
+            border-color:
+                #edf0f3;
+        }
+
+
+        /* ======================================================
+           BADGES
+        ====================================================== */
+
+        .badge {
+
+            font-weight: 500;
+
+            border-radius: 5px;
+
+            padding:
+                5px 8px;
+        }
+
+
+        /* ======================================================
+           ALERTES
+        ====================================================== */
+
+        .alert {
+
+            border-radius: 7px;
+
+            border-width: 1px;
+
+            font-size: 13px;
+        }
+
+
+        /* ======================================================
+           FORMULAIRES
+        ====================================================== */
+
+        .form-label {
+
+            font-size: 13px;
+
+            font-weight: 600;
+
+            color: var(--text-dark);
+        }
+
+
+        .form-control,
+        .form-select {
+
+            border-radius: 6px;
+
+            border-color: #dfe4ea;
+
+            font-size: 13px;
+
+            min-height: 40px;
+        }
+
+
+        .form-control:focus,
+        .form-select:focus {
+
+            border-color:
+                var(--primary);
+
+            box-shadow:
+                0 0 0 0.15rem
+                rgba(23, 54, 93, 0.12);
+        }
+
+
+        /* ======================================================
+           MODALES
+        ====================================================== */
+
+        .modal-content {
+
+            border: none;
+
+            border-radius: 10px;
+
+            box-shadow:
+                0 15px 45px
+                rgba(0, 0, 0, 0.15);
+        }
+
+
+        .modal-header {
+
+            border-bottom:
+                1px solid var(--border);
+        }
+
+
+        /* ======================================================
+           SCROLLBAR
+        ====================================================== */
+
+        .sidebar::-webkit-scrollbar {
+
+            width: 5px;
+        }
+
+
+        .sidebar::-webkit-scrollbar-thumb {
+
+            background:
+                rgba(255, 255, 255, 0.18);
+
+            border-radius: 10px;
+        }
+
+
+        /* ======================================================
+           RESPONSIVE
+        ====================================================== */
+
+        @media (max-width: 991px) {
+
+            :root {
+                --sidebar-width: 220px;
+            }
+
+            .main-content {
+                padding: 20px;
+            }
+
+            .topbar {
+                padding: 0 20px;
+            }
+        }
+
+
+        @media (max-width: 767px) {
+
+            .sidebar {
+
+                position: relative;
+
+                width: 100%;
+
+                top: 0;
+
+                min-height: auto;
+
+                max-height: none;
+            }
+
+
+            .main-area {
+
+                width: 100%;
+
+                margin-left: 0;
+            }
+
+
+            .app-wrapper {
+
+                display: block;
+            }
+
+
+            .main-content {
+
+                padding: 15px;
+            }
+
+
+            .topbar {
+
+                position: relative;
+
+                padding:
+                    12px 15px;
+
+                gap: 10px;
+
+                flex-wrap: wrap;
+            }
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<!-- Bande institutionnelle -->
+
+<div class="top-government-bar"></div>
+
+
+<div class="app-wrapper">
+
+
+    <!-- ======================================================
+         SIDEBAR
+    ======================================================= -->
+
+    <aside class="sidebar">
+
+
+        <div class="sidebar-brand-line"></div>
+
+
+        <div class="sidebar-brand">
+
+
+            <div class="sidebar-brand-title">
+
+                <div class="sidebar-brand-icon">
+
+                    <i class="bi bi-mortarboard-fill"></i>
+
+                </div>
+
+
+                <span>
+                    CEPE Gestion
+                </span>
+
+            </div>
+
+
+            <div class="sidebar-brand-subtitle">
+
+                IEPP Yopougon-Niangon
+
+            </div>
+
+
+        </div>
+
+
+        <!-- ANNÉE ACTIVE -->
+
+        <div class="sidebar-year">
+
+            <span class="sidebar-year-label">
+
+                Année scolaire active
+
+            </span>
+
+
+            <div class="sidebar-year-value">
+
+                <i class="bi bi-calendar3"></i>
+
+                2026-2027
+
+            </div>
+
+        </div>
+
+
+        <!-- MENU -->
+
+        <div class="sidebar-section">
+
+            Principal
+
+        </div>
+
+
+        <ul class="nav flex-column">
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'index.php' ? 'active' : '' ?>"
+                    href="index.php"
+                >
+
+                    <i class="bi bi-grid-1x2-fill"></i>
+
+                    <span>
+                        Tableau de bord
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'ecoles.php' ? 'active' : '' ?>"
+                    href="ecoles.php"
+                >
+
+                    <i class="bi bi-building"></i>
+
+                    <span>
+                        Écoles
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'enseignants.php' ? 'active' : '' ?>"
+                    href="enseignants.php"
+                >
+
+                    <i class="bi bi-person-badge"></i>
+
+                    <span>
+                        Enseignants
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'candidats.php' ? 'active' : '' ?>"
+                    href="candidats.php"
+                >
+
+                    <i class="bi bi-people"></i>
+
+                    <span>
+                        Candidats
+                    </span>
+
+                </a>
+
+            </li>
+
+        </ul>
+
+
+        <div class="sidebar-section">
+
+            Organisation des examens
+
+        </div>
+
+
+        <ul class="nav flex-column">
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'centres.php' ? 'active' : '' ?>"
+                    href="centres.php"
+                >
+
+                    <i class="bi bi-geo-alt"></i>
+
+                    <span>
+                        Centres d'examen
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'plans.php' ? 'active' : '' ?>"
+                    href="plans.php"
+                >
+
+                    <i class="bi bi-grid-3x3"></i>
+
+                    <span>
+                        Plans de salle
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'affectations.php' ? 'active' : '' ?>"
+                    href="affectations.php"
+                >
+
+                    <i class="bi bi-person-check"></i>
+
+                    <span>
+                        Affectations
+                    </span>
+
+                </a>
+
+            </li>
+
+        </ul>
+
+
+        <div class="sidebar-section">
+
+            Documents & rapports
+
+        </div>
+
+
+        <ul class="nav flex-column">
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'documents.php' ? 'active' : '' ?>"
+                    href="documents.php"
+                >
+
+                    <i class="bi bi-file-earmark-text"></i>
+
+                    <span>
+                        Documents
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'sauvegarde.php' ? 'active' : '' ?>"
+                    href="sauvegarde.php"
+                >
+
+                    <i class="bi bi-archive"></i>
+
+                    <span>
+                        Sauvegarde
+                    </span>
+
+                </a>
+
+            </li>
+
+        </ul>
+
+
+        <div class="sidebar-section">
+
+            Administration
+
+        </div>
+
+
+        <ul class="nav flex-column">
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'parametres.php' ? 'active' : '' ?>"
+                    href="parametres.php"
+                >
+
+                    <i class="bi bi-gear"></i>
+
+                    <span>
+                        Paramètres
+                    </span>
+
+                </a>
+
+            </li>
+
+        </ul>
+
+
+    </aside>
+
+
+    <!-- ======================================================
+         ZONE PRINCIPALE
+    ======================================================= -->
+
+    <div class="main-area">
+
+
+        <!-- TOPBAR -->
+
+        <header class="topbar">
+
+
+            <div>
+
+                <div class="topbar-title">
+
+                    Application de gestion du CEPE
+
+                </div>
+
+
+                <div class="topbar-subtitle">
+
+                    IEPP Yopougon-Niangon
+
+                </div>
+
+            </div>
+
+
+            <div class="topbar-year">
+
+                <i class="bi bi-calendar-check"></i>
+
+                Année scolaire :
+
+                <strong>
+                    2026-2027
+                </strong>
+
+            </div>
+
+
+        </header>
+
+
+        <!-- CONTENU -->
+
+        <main class="main-content">
