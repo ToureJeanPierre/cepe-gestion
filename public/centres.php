@@ -1,5 +1,9 @@
 <?php
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 
@@ -7,34 +11,21 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 $pageTitle = 'Centres d\'Examen';
 
-$ANNEE_SCOLAIRE = '2026-2027';
-
 $success = null;
 $error = null;
 
-
-/*
-|--------------------------------------------------------------------------
-| RÉCUPÉRER L'ANNÉE SCOLAIRE
-|--------------------------------------------------------------------------
-*/
-
-$stmtAnnee = $pdo->prepare("
-    SELECT id, annee_scolaire, statut
-    FROM annees
-    WHERE annee_scolaire = ?
-    LIMIT 1
-");
-
-$stmtAnnee->execute([$ANNEE_SCOLAIRE]);
-
-$annee = $stmtAnnee->fetch();
+// Année scolaire consultée : résolue globalement par config/database.php
+// ($anneeId, $ANNEE_SCOLAIRE, $anneeSelectionnee, $anneeLectureSeule)
+$annee = $anneeSelectionnee;
 
 if (!$annee) {
-    die("L'année scolaire 2026-2027 n'existe pas dans la base de données.");
+    die("Aucune année scolaire n'existe dans la base de données.");
 }
 
-$anneeId = (int) $annee['id'];
+// Toute action d'écriture est bloquée si l'année consultée est archivée
+if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
+}
 
 
 /*
@@ -663,7 +654,8 @@ if (
                 $stmt = $pdo->prepare("
                     SELECT
                         id,
-                        nom
+                        nom,
+                        ecole_tutrice_id
                     FROM ecoles
 
                     WHERE LOWER(TRIM(nom))
@@ -688,6 +680,18 @@ if (
                         . ($numeroLigne + 2)
                         . " : école introuvable : "
                         . $nomEcole;
+
+                    continue;
+                }
+
+                if (!empty($ecole['ecole_tutrice_id'])) {
+
+                    $erreurs[] =
+                        "Ligne "
+                        . ($numeroLigne + 2)
+                        . " : "
+                        . $nomEcole
+                        . " est une école rattachée (pas de code DSPS propre) — seule son école tutrice peut être affectée à un centre. Son effectif sera compté automatiquement via sa tutrice.";
 
                     continue;
                 }
@@ -882,6 +886,8 @@ $stmt = $pdo->query("
 
     FROM ecoles
 
+    WHERE ecole_tutrice_id IS NULL
+
     ORDER BY nom ASC
 ");
 
@@ -910,7 +916,9 @@ $stmt = $pdo->prepare("
 
     FROM ecoles AS e
 
-    WHERE NOT EXISTS (
+    WHERE e.ecole_tutrice_id IS NULL
+
+      AND NOT EXISTS (
 
         SELECT 1
 
@@ -1010,6 +1018,33 @@ $examens = $stmt->fetchAll();
 
 /*
 |--------------------------------------------------------------------------
+| EXAMEN ACTIF — PARTAGÉ ENTRE CENTRES / PLAN DE SALLE / (futur) SURVEILLANCE
+|--------------------------------------------------------------------------
+| Choisi une fois via le sélecteur ci-dessous, mémorisé en session, et donc
+| conservé automatiquement quand on navigue vers plans.php.
+*/
+if (isset($_GET['examen_id']) && (int) $_GET['examen_id'] > 0) {
+    $_SESSION['examen_actif_id'] = (int) $_GET['examen_id'];
+}
+
+$examenActifId = $_SESSION['examen_actif_id'] ?? ($examens[0]['id'] ?? null);
+
+$examenActif = null;
+foreach ($examens as $ex) {
+    if ((int) $ex['id'] === (int) $examenActifId) {
+        $examenActif = $ex;
+        break;
+    }
+}
+// Si l'examen mémorisé n'existe plus (changement d'année, etc.), on retombe sur le premier
+if (!$examenActif && !empty($examens)) {
+    $examenActif = $examens[0];
+    $examenActifId = $examenActif['id'];
+    $_SESSION['examen_actif_id'] = $examenActifId;
+}
+
+/*
+|--------------------------------------------------------------------------
 | CALCUL AUTOMATIQUE DES EFFECTIFS
 |--------------------------------------------------------------------------
 |
@@ -1030,17 +1065,27 @@ foreach ($centres as &$centre) {
         $centreId = (int) $centre['centre_id'];
         $examenId = (int) $examen['id'];
 
+        // Effectif scolaire = candidats OFFICIELS "Validés" (matricule vérifié + droits payés)
+        // de l'école composante ELLE-MÊME + de toutes les écoles qui lui sont rattachées
+        // (ecole_tutrice_id). Seules les écoles officielles (à code) sont affectées aux
+        // centres via ecole_centre, mais leur effectif doit inclure leurs rattachées.
         $stmt = $pdo->prepare("
             SELECT COUNT(*)
             FROM candidats AS ca
-            INNER JOIN ecole_centre AS ec
-                ON ec.ecole_composante_id = ca.ecole_id
-               AND ec.centre_id = ?
+            INNER JOIN ecoles AS e ON e.id = ca.ecole_id
             WHERE ca.est_candidat_libre = 0
+              AND ca.matricule_verifie = 1
+              AND ca.droits_payes = 1
+              AND (
+                    e.id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
+                 OR e.ecole_tutrice_id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
+              )
         ");
-        $stmt->execute([$centreId]);
+        $stmt->execute([$centreId, $centreId]);
         $effectifScolaire = (int) $stmt->fetchColumn();
 
+        // Candidats libres : pas de condition de validation (comptés directement dès
+        // qu'ils sont affectés au centre pour l'Examen Final)
         $effectifLibre = 0;
 
         if ($examen['code'] === 'CEPE_FINAL') {
@@ -1617,13 +1662,35 @@ include '../views/layouts/header.php';
 
 
 <!-- ==========================================================
+     SÉLECTEUR D'EXAMEN ACTIF (partagé avec Plan de salle)
+=========================================================== -->
+<div class="card shadow-sm mb-4 border-primary">
+    <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+            <i class="bi bi-journal-check text-primary"></i>
+            <strong>Examen affiché :</strong>
+            <span class="badge bg-primary fs-6"><?= htmlspecialchars($examenActif['libelle'] ?? '—') ?></span>
+        </div>
+        <form method="GET" class="d-flex align-items-center gap-2">
+            <label class="mb-0 small text-muted">Changer :</label>
+            <select name="examen_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+                <?php foreach ($examens as $ex): ?>
+                    <option value="<?= $ex['id'] ?>" <?= (int)$ex['id'] === (int)$examenActifId ? 'selected' : '' ?>><?= htmlspecialchars($ex['libelle']) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </form>
+    </div>
+</div>
+<small class="text-muted d-block mb-3"><i class="bi bi-info-circle"></i> Ce choix reste actif quand vous allez sur "Plans de salle".</small>
+
+<!-- ==========================================================
      EFFECTIFS PAR CENTRE ET PAR EXAMEN
 =========================================================== -->
 <div class="card shadow-sm mb-4">
     <div class="card-header bg-dark text-white">
         <strong>
             <i class="bi bi-people-fill"></i>
-            Effectifs des centres — 2026-2027
+            Effectifs des centres — <?= htmlspecialchars($examenActif['libelle'] ?? '') ?>
         </strong>
     </div>
 
@@ -1662,6 +1729,7 @@ include '../views/layouts/header.php';
 
                         <tbody>
                         <?php foreach ($examens as $examen): ?>
+                            <?php if ((int) $examen['id'] !== (int) $examenActifId) { continue; } ?>
                             <?php
                                 $eff = $centre['effectifs'][(int) $examen['id']]
                                     ?? [

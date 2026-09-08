@@ -1,38 +1,28 @@
 <?php
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require_once '../config/database.php';
 
 $pageTitle = 'Plans de salle';
-
-$ANNEE_SCOLAIRE = '2026-2027';
 
 $success = null;
 $error = null;
 $avertissements = [];
 
-
-/*
-|--------------------------------------------------------------------------
-| RÉCUPÉRER L'ANNÉE SCOLAIRE
-|--------------------------------------------------------------------------
-*/
-
-$stmt = $pdo->prepare("
-    SELECT id, annee_scolaire
-    FROM annees
-    WHERE annee_scolaire = ?
-    LIMIT 1
-");
-
-$stmt->execute([$ANNEE_SCOLAIRE]);
-
-$annee = $stmt->fetch();
+// Année scolaire consultée : résolue globalement par config/database.php
+// ($anneeId, $ANNEE_SCOLAIRE, $anneeSelectionnee, $anneeLectureSeule)
+$annee = $anneeSelectionnee;
 
 if (!$annee) {
-    die("L'année scolaire 2026-2027 n'existe pas dans la base de données.");
+    die("Aucune année scolaire n'existe dans la base de données.");
 }
 
-$anneeId = (int) $annee['id'];
+if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
+}
 
 
 /*
@@ -799,6 +789,156 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | 4. GÉNÉRATION DE LA LISTE D'ÉMARGEMENT (candidat -> salle, règle 5.3)
+    |--------------------------------------------------------------------------
+    | Liste alphabétique globale du centre, affectation séquentielle au numéro
+    | de salle (candidats 1-30 -> Salle 1, 31-60 -> Salle 2, etc.), à partir des
+    | salles déjà calculées par la génération automatique ci-dessus.
+    |--------------------------------------------------------------------------
+    */
+
+    elseif (isset($_POST['generer_emargement'])) {
+
+        if ($examenIdPost <= 0) {
+
+            $error = "Veuillez sélectionner un examen.";
+
+        } else {
+
+            $examen = recupererExamen($pdo, $examenIdPost, $anneeId);
+
+            if (!$examen) {
+
+                $error = "Examen invalide pour l'année scolaire consultée.";
+
+            } else {
+
+                try {
+
+                    $stmt = $pdo->prepare("
+                        SELECT ce.id AS centre_effectif_id, ce.centre_id, e.nom AS nom_centre
+                        FROM centre_effectifs ce
+                        INNER JOIN centres c ON c.id = ce.centre_id
+                        INNER JOIN ecoles e ON e.id = c.ecole_id
+                        WHERE ce.examen_id = ? AND c.annee_id = ?
+                        ORDER BY e.nom ASC
+                    ");
+                    $stmt->execute([$examenIdPost, $anneeId]);
+                    $centresEffectifs = $stmt->fetchAll();
+
+                    $pdo->beginTransaction();
+
+                    $nbCentresTraites = 0;
+                    $avertissementsEmargement = [];
+
+                    foreach ($centresEffectifs as $centreEff) {
+
+                        $centreEffectifId = (int) $centreEff['centre_effectif_id'];
+                        $centreId = (int) $centreEff['centre_id'];
+
+                        // Salles de ce centre, dans l'ordre numérique
+                        $stmtSalles = $pdo->prepare("
+                            SELECT id, numero_salle, COALESCE(effectif_retenu, effectif_calcule) AS capacite
+                            FROM plan_salles
+                            WHERE centre_effectif_id = ?
+                            ORDER BY numero_salle ASC
+                        ");
+                        $stmtSalles->execute([$centreEffectifId]);
+                        $salles = $stmtSalles->fetchAll();
+
+                        if (!$salles) {
+                            continue; // Pas encore de plan de salle pour ce centre
+                        }
+
+                        // Effectif scolaire = candidats OFFICIELS validés de l'école du centre
+                        // + de ses rattachées (même règle que le calcul d'effectif de centres.php)
+                        $stmtCand = $pdo->prepare("
+                            SELECT ca.id, ca.nom, ca.prenoms
+                            FROM candidats ca
+                            INNER JOIN ecoles e ON e.id = ca.ecole_id
+                            WHERE ca.est_candidat_libre = 0
+                              AND ca.matricule_verifie = 1
+                              AND ca.droits_payes = 1
+                              AND (
+                                    e.id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
+                                 OR e.ecole_tutrice_id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
+                              )
+                        ");
+                        $stmtCand->execute([$centreId, $centreId]);
+                        $candidats = $stmtCand->fetchAll();
+
+                        // Candidats libres : uniquement pour l'Examen Final
+                        if ($examen['code'] === 'CEPE_FINAL') {
+                            $stmtLibres = $pdo->prepare("
+                                SELECT id, nom, prenoms
+                                FROM candidats
+                                WHERE est_candidat_libre = 1 AND centre_examen_id = ?
+                            ");
+                            $stmtLibres->execute([$centreId]);
+                            $candidats = array_merge($candidats, $stmtLibres->fetchAll());
+                        }
+
+                        // Tri alphabétique global (nom, prénoms) sur l'ensemble des candidats du centre
+                        usort($candidats, function ($a, $b) {
+                            return [$a['nom'], $a['prenoms']] <=> [$b['nom'], $b['prenoms']];
+                        });
+
+                        $candidatIds = array_column($candidats, 'id');
+                        $capaciteTotale = array_sum(array_column($salles, 'capacite'));
+
+                        if (count($candidatIds) !== $capaciteTotale) {
+                            $avertissementsEmargement[] =
+                                $centreEff['nom_centre']
+                                . " : effectif candidats (" . count($candidatIds) . ") différent "
+                                . "de la capacité des salles (" . $capaciteTotale . "). "
+                                . "Régénérez le plan de salle si l'effectif a changé.";
+                        }
+
+                        // Repart de zéro pour ce centre (une régénération recalcule toute l'affectation)
+                        $salleIds = array_column($salles, 'id');
+                        $ph = implode(',', array_fill(0, count($salleIds), '?'));
+                        $pdo->prepare("DELETE FROM plan_salle_candidats WHERE plan_salle_id IN ($ph)")->execute($salleIds);
+
+                        $stmtIns = $pdo->prepare("
+                            INSERT INTO plan_salle_candidats (plan_salle_id, candidat_id, examen_id, numero_ordre)
+                            VALUES (?, ?, ?, ?)
+                        ");
+
+                        $curseur = 0;
+                        $ordreGlobal = 1;
+                        foreach ($salles as $salle) {
+                            $capacite = (int) $salle['capacite'];
+                            for ($i = 0; $i < $capacite && $curseur < count($candidatIds); $i++, $curseur++) {
+                                $stmtIns->execute([$salle['id'], $candidatIds[$curseur], $examenIdPost, $ordreGlobal]);
+                                $ordreGlobal++;
+                            }
+                        }
+
+                        $nbCentresTraites++;
+                    }
+
+                    $pdo->commit();
+
+                    $success = "Liste d'émargement générée pour $nbCentresTraites centre(s) — " . $examen['libelle'] . ".";
+                    if ($avertissementsEmargement) {
+                        $avertissements = array_merge($avertissements, $avertissementsEmargement);
+                    }
+
+                } catch (Exception $e) {
+
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+
+                    $error = "Erreur lors de la génération de l'émargement : " . $e->getMessage();
+                }
+            }
+        }
+    }
 }
 
 
@@ -840,11 +980,20 @@ $examenSelectionneId =
             isset($_GET['examen_id'])
                 ? (int) $_GET['examen_id']
                 : (
-                    isset($examens[0]['id'])
-                        ? (int) $examens[0]['id']
-                        : 0
+                    isset($_SESSION['examen_actif_id'])
+                        ? (int) $_SESSION['examen_actif_id']
+                        : (
+                            isset($examens[0]['id'])
+                                ? (int) $examens[0]['id']
+                                : 0
+                        )
                 )
         );
+
+// Garde la sélection en session pour qu'elle soit reprise sur la page Centres
+if ($examenSelectionneId > 0) {
+    $_SESSION['examen_actif_id'] = $examenSelectionneId;
+}
 
 
 /*
@@ -1202,6 +1351,19 @@ include '../views/layouts/header.php';
                 </div>
 
             </form>
+
+            <?php if ($examenSelectionneId): ?>
+                <form method="POST" class="mt-2">
+                    <input type="hidden" name="examen_id" value="<?= (int) $examenSelectionneId ?>">
+                    <button type="submit" name="generer_emargement" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-list-ol"></i>
+                        Générer la liste d'émargement (candidat → salle)
+                    </button>
+                    <small class="text-muted d-block mt-1">
+                        À lancer après le calcul des salles ci-dessus : affecte chaque candidat, par ordre alphabétique, à sa salle.
+                    </small>
+                </form>
+            <?php endif; ?>
 
         </div>
 

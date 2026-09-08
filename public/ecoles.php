@@ -5,14 +5,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 $pageTitle = 'Gestion des Écoles';
 
-// ==========================================
-// FONCTION : Détection Automatique Groupe Scolaire
-// ==========================================
-function detecterGroupeScolaire($nom) {
-    $nomNettoye = preg_replace('/\s+\d+$/i', '', $nom);
-    $nomNettoye = preg_replace('/\s*-\s*(Maternelle|Primaire|Secondaire).*$/i', '', $nomNettoye);
-    return trim($nomNettoye);
-}
+require_once __DIR__ . '/../src/groupe_scolaire_helpers.php';
 
 // ==========================================
 // TRAITEMENT : IMPORTATION EXCEL
@@ -47,35 +40,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_ecoles'])) {
                     }
                     
                     $typeRatt = !empty($tuteurId) ? (in_array(strtolower($row[4] ?? ''), ['arrimee']) ? 'arrimee' : 'sans_code_dsps') : 'aucun';
-                    
-                    // Gestion Groupe
+
+                    // Règle du cahier des charges : sans code DSPS, une école doit être rattachée à une tutrice.
+                    if (empty($codeDsps) && !$tuteurId) {
+                        $erreurs[] = "Ligne $numLigne : '$nom' n'a pas de code DSPS et aucune école tutrice '$nomTuteur' n'a été trouvée — ligne ignorée.";
+                        continue;
+                    }
+
+                    // Gestion Groupe (une valeur donnée dans le fichier = ajustement manuel verrouillé)
                     $groupeManuel = trim($row[5] ?? '');
-                    $groupeScolaire = !empty($groupeManuel) ? $groupeManuel : detecterGroupeScolaire($nom);
+                    $groupeScolaire = !empty($groupeManuel) ? $groupeManuel : null;
+                    $groupeVerrouille = !empty($groupeManuel) ? 1 : 0;
 
                     $directeurNom = trim($row[6] ?? '');
                     $directeurTel = trim($row[7] ?? '');
                     $effectif = !empty($row[8]) ? (int)$row[8] : 0;
                     $estCentre = (in_array(strtoupper($row[9] ?? ''), ['O', 'OUI', '1'])) ? 1 : 0;
 
-                    // Vérification Doublon Nom
-                    $checkStmt = $pdo->prepare("SELECT id FROM ecoles WHERE nom = ?");
-                    $checkStmt->execute([$nom]);
+                    // Vérification Doublon : par code DSPS si disponible (clé la plus fiable),
+                    // sinon par nom (insensible à la casse et aux espaces superflus)
+                    if (!empty($codeDsps)) {
+                        $checkStmt = $pdo->prepare("SELECT id FROM ecoles WHERE code_dsps = ?");
+                        $checkStmt->execute([$codeDsps]);
+                    } else {
+                        $checkStmt = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?))");
+                        $checkStmt->execute([$nom]);
+                    }
                     $existing = $checkStmt->fetch();
 
                     if ($existing) {
-                        $upd = $pdo->prepare("UPDATE ecoles SET code_dsps=?, statut=?, ecole_tutrice_id=?, type_rattachement=?, groupe_scolaire=?, directeur_nom=?, directeur_telephone=?, effectif_general=?, est_centre_examen=?, source='import' WHERE id=?");
-                        $upd->execute([$codeDsps, $statut, $tuteurId, $typeRatt, $groupeScolaire, $directeurNom, $directeurTel, $effectif, $estCentre, $existing['id']]);
+                        $upd = $pdo->prepare("UPDATE ecoles SET code_dsps=?, statut=?, ecole_tutrice_id=?, type_rattachement=?, groupe_scolaire=?, groupe_scolaire_manuel=?, directeur_nom=?, directeur_telephone=?, effectif_general=?, est_centre_examen=?, source='import' WHERE id=?");
+                        $upd->execute([$codeDsps, $statut, $tuteurId, $typeRatt, $groupeScolaire, $groupeVerrouille, $directeurNom, $directeurTel, $effectif, $estCentre, $existing['id']]);
                         $nbMajs++;
                     } else {
-                        $ins = $pdo->prepare("INSERT INTO ecoles (nom, code_dsps, statut, ecole_tutrice_id, type_rattachement, groupe_scolaire, directeur_nom, directeur_telephone, effectif_general, est_centre_examen, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import')");
-                        $ins->execute([$nom, $codeDsps, $statut, $tuteurId, $typeRatt, $groupeScolaire, $directeurNom, $directeurTel, $effectif, $estCentre]);
+                        $ins = $pdo->prepare("INSERT INTO ecoles (annee_id, nom, code_dsps, statut, ecole_tutrice_id, type_rattachement, groupe_scolaire, groupe_scolaire_manuel, directeur_nom, directeur_telephone, effectif_general, est_centre_examen, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import')");
+                        $ins->execute([$anneeActive['id'] ?? $anneeId, $nom, $codeDsps, $statut, $tuteurId, $typeRatt, $groupeScolaire, $groupeVerrouille, $directeurNom, $directeurTel, $effectif, $estCentre]);
                         $nbAjouts++;
                     }
                 } catch (Exception $e) {
                     $erreurs[] = "Ligne $numLigne : " . $e->getMessage();
                 }
             }
-            
+
+            recalculerGroupesScolaires($pdo);
+
             $msg = "Import terminé : $nbAjouts ajouts, $nbMajs mises à jour.";
             if (!empty($erreurs)) $msg .= "<br>Erreurs : " . implode(", ", array_slice($erreurs, 0, 5));
             header("Location: ecoles.php?msg=" . urlencode($msg));
@@ -94,6 +102,7 @@ if (isset($_GET['supprimer'])) {
     $id = (int)$_GET['supprimer'];
     $pdo->prepare("UPDATE ecoles SET ecole_tutrice_id = NULL WHERE ecole_tutrice_id = ?")->execute([$id]);
     $pdo->prepare("DELETE FROM ecoles WHERE id = ?")->execute([$id]);
+    recalculerGroupesScolaires($pdo);
     header("Location: ecoles.php");
     exit;
 }
@@ -107,23 +116,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter_ecole']) || 
     $statut = $_POST['statut'];
     $tuteurId = !empty($_POST['ecole_tutrice_id']) ? (int)$_POST['ecole_tutrice_id'] : null;
     $typeRatt = $tuteurId ? ($_POST['type_rattachement'] ?? 'sans_code_dsps') : 'aucun';
-    $groupe = !empty(trim($_POST['groupe_scolaire'])) ? trim($_POST['groupe_scolaire']) : detecterGroupeScolaire($nom);
+
+    // Si l'utilisateur saisit un nom de groupe, c'est un ajustement manuel verrouillé.
+    // S'il laisse vide, l'auto-détection reprendra la main au recalcul ci-dessous.
+    $groupeSaisi = trim($_POST['groupe_scolaire'] ?? '');
+    $groupe = !empty($groupeSaisi) ? $groupeSaisi : null;
+    $groupeVerrouille = !empty($groupeSaisi) ? 1 : 0;
+
     $directeur = trim($_POST['directeur_nom']);
     $tel = trim($_POST['directeur_telephone']);
     $effectif = (int)($_POST['effectif_general'] ?? 0);
     $centre = isset($_POST['est_centre_examen']) ? 1 : 0;
 
-    if (isset($_POST['ajouter_ecole'])) {
-        $stmt = $pdo->prepare("INSERT INTO ecoles (nom, code_dsps, statut, ecole_tutrice_id, type_rattachement, groupe_scolaire, directeur_nom, directeur_telephone, effectif_general, est_centre_examen, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuel')");
-        $stmt->execute([$nom, $codeDsps, $statut, $tuteurId, $typeRatt, $groupe, $directeur, $tel, $effectif, $centre]);
+    // Règle du cahier des charges : une école sans code DSPS doit obligatoirement
+    // être rattachée à une école tutrice (elle ne peut pas rester "aucun").
+    if (empty($codeDsps) && !$tuteurId) {
+        $error = "Cette école n'a pas de code DSPS : elle doit obligatoirement être rattachée à une école tutrice.";
+    } elseif (isset($_POST['ajouter_ecole'])) {
+        $stmt = $pdo->prepare("INSERT INTO ecoles (annee_id, nom, code_dsps, statut, ecole_tutrice_id, type_rattachement, groupe_scolaire, groupe_scolaire_manuel, directeur_nom, directeur_telephone, effectif_general, est_centre_examen, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuel')");
+        $stmt->execute([$anneeActive['id'] ?? $anneeId, $nom, $codeDsps, $statut, $tuteurId, $typeRatt, $groupe, $groupeVerrouille, $directeur, $tel, $effectif, $centre]);
     } elseif (isset($_POST['modifier_ecole'])) {
         $id = (int)$_POST['id'];
         if ($tuteurId == $id) { $tuteurId = null; $typeRatt = 'aucun'; }
-        $stmt = $pdo->prepare("UPDATE ecoles SET nom=?, code_dsps=?, statut=?, ecole_tutrice_id=?, type_rattachement=?, groupe_scolaire=?, directeur_nom=?, directeur_telephone=?, effectif_general=?, est_centre_examen=? WHERE id=?");
-        $stmt->execute([$nom, $codeDsps, $statut, $tuteurId, $typeRatt, $groupe, $directeur, $tel, $effectif, $centre, $id]);
+        $stmt = $pdo->prepare("UPDATE ecoles SET nom=?, code_dsps=?, statut=?, ecole_tutrice_id=?, type_rattachement=?, groupe_scolaire=?, groupe_scolaire_manuel=?, directeur_nom=?, directeur_telephone=?, effectif_general=?, est_centre_examen=? WHERE id=?");
+        $stmt->execute([$nom, $codeDsps, $statut, $tuteurId, $typeRatt, $groupe, $groupeVerrouille, $directeur, $tel, $effectif, $centre, $id]);
     }
-    header("Location: ecoles.php");
-    exit;
+
+    if (!isset($error)) {
+        recalculerGroupesScolaires($pdo);
+        header("Location: ecoles.php");
+        exit;
+    }
 }
 
 // ==========================================
@@ -144,7 +167,7 @@ if ($filtreRecherche) {
     $term = "%$filtreRecherche%";
     $params[] = $term; $params[] = $term; $params[] = $term;
 }
-$sql .= " ORDER BY e.groupe_scolaire ASC, e.nom ASC";
+$sql .= " ORDER BY e.nom ASC";
 
 $ecoles = $pdo->prepare($sql);
 $ecoles->execute($params);
@@ -192,23 +215,41 @@ include '../views/layouts/header.php';
 </div>
 
 <!-- Filtres -->
-<form method="GET" class="row g-3 mb-4">
-    <div class="col-md-6"><input type="text" name="recherche" class="form-control" placeholder="Rechercher (Nom, Code, Groupe)..." value="<?= htmlspecialchars($filtreRecherche) ?>"></div>
+<form method="GET" id="formFiltresEcoles" class="row g-3 mb-4">
+    <div class="col-md-6"><input type="text" name="recherche" id="inputRechercheEcoles" class="form-control" placeholder="Rechercher (Nom, Code, Groupe)..." value="<?= htmlspecialchars($filtreRecherche) ?>" autocomplete="off"></div>
     <div class="col-md-4">
-        <select name="filtre_statut" class="form-select">
+        <select name="filtre_statut" class="form-select" onchange="this.form.submit()">
             <option value="">Tous les statuts</option>
             <option value="Public" <?= $filtreStatut=='Public'?'selected':'' ?>>Public</option>
             <option value="Privé" <?= $filtreStatut=='Privé'?'selected':'' ?>>Privé</option>
         </select>
     </div>
-    <div class="col-md-2"><button type="submit" class="btn btn-outline-primary w-100">Filtrer</button></div>
+    <div class="col-md-2"><a href="ecoles.php" class="btn btn-outline-secondary w-100">Réinitialiser</a></div>
 </form>
+<script>
+(function () {
+    var champ = document.getElementById('inputRechercheEcoles');
+    var minuteur;
+    champ.addEventListener('input', function () {
+        clearTimeout(minuteur);
+        minuteur = setTimeout(function () {
+            document.getElementById('formFiltresEcoles').submit();
+        }, 600);
+    });
+})();
+</script>
 
 <!-- Onglets -->
 <ul class="nav nav-tabs mb-4" role="tablist">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#detail">📋 Liste Détaillée</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#groupes">🏘️ Par Groupes Scolaires</button></li>
 </ul>
+
+<!-- Barre d'actions en masse (apparaît dès qu'au moins 1 école est sélectionnée) -->
+<div class="alert alert-primary d-none align-items-center justify-content-between py-2 mb-3" id="barreActionsMasseEcoles">
+    <span><strong id="nbSelectionnesEcoles">0</strong> école(s) sélectionnée(s)</span>
+    <button type="button" class="btn btn-sm btn-danger" onclick="actionMasseEcoles('supprimer')"><i class="bi bi-trash"></i> Supprimer</button>
+</div>
 
 <div class="tab-content">
     <!-- ONGLET 1 : LISTE DÉTAILLÉE -->
@@ -218,6 +259,7 @@ include '../views/layouts/header.php';
                 <table class="table table-hover align-middle mb-0">
                     <thead class="table-light">
                         <tr>
+                            <th><input type="checkbox" id="checkToutEcoles" onclick="toggleTousEcoles(this)"></th>
                             <th>Groupe</th>
                             <th>Nom École</th>
                             <th>Code DSPS</th>
@@ -231,8 +273,9 @@ include '../views/layouts/header.php';
                     <tbody>
                         <?php foreach ($ecoles as $e): ?>
                         <tr class="<?= $e['est_centre_examen'] ? 'table-success' : '' ?>">
+                            <td><input type="checkbox" class="check-ecole" value="<?= $e['id'] ?>" onchange="majBarreActionsEcoles()"></td>
                             <td><small class="text-muted"><?= htmlspecialchars($e['groupe_scolaire'] ?? '-') ?></small></td>
-                            <td><strong><?= htmlspecialchars($e['nom']) ?></strong></td>
+                            <td><strong><a href="candidats.php?ecole_id=<?= $e['id'] ?>" title="Voir les candidats de cette école"><?= htmlspecialchars($e['nom']) ?></a></strong></td>
                             <td><?= $e['code_dsps'] ? '<code>'.htmlspecialchars($e['code_dsps']).'</code>' : '<span class="badge bg-danger">Aucun</span>' ?></td>
                             <td><span class="badge bg-<?= $e['statut']=='Public'?'info':'warning' ?>"><?= $e['statut'] ?></span></td>
                             <td>
@@ -246,6 +289,8 @@ include '../views/layouts/header.php';
                             <td><?= htmlspecialchars($e['directeur_nom']) ?><br><small class="text-muted"><?= htmlspecialchars($e['directeur_telephone']) ?></small></td>
                             <td class="text-center"><?= $e['est_centre_examen'] ? '✅' : '-' ?></td>
                             <td>
+                                <a href="candidats.php?ecole_id=<?= $e['id'] ?>" class="btn btn-sm btn-outline-success" title="Candidats de cette école"><i class="bi bi-people"></i></a>
+                                <a href="enseignants.php?ecole_id=<?= $e['id'] ?>" class="btn btn-sm btn-outline-info" title="Personnel de cette école"><i class="bi bi-person-badge"></i></a>
                                 <a href="?modifier=<?= $e['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
                                 <a href="?supprimer=<?= $e['id'] ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Supprimer ?')"><i class="bi bi-trash"></i></a>
                             </td>
@@ -314,7 +359,7 @@ include '../views/layouts/header.php';
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
                     <h5><?= $ecoleAModifier ? 'Modifier' : 'Nouvelle École' ?></h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <a href="ecoles.php" class="btn-close btn-close-white" aria-label="Fermer"></a>
                 </div>
                 <div class="modal-body">
                     <?php if ($ecoleAModifier): ?><input type="hidden" name="id" value="<?= $ecoleAModifier['id'] ?>"><?php endif; ?>
@@ -331,7 +376,7 @@ include '../views/layouts/header.php';
                                 <option value="Privé" <?= ($ecoleAModifier['statut'] ?? '') == 'Privé' ? 'selected' : '' ?>>Privé</option>
                             </select>
                         </div>
-                        <div class="col-md-4 mb-2"><label>Groupe Scolaire</label><input type="text" name="groupe_scolaire" class="form-control" value="<?= htmlspecialchars($ecoleAModifier['groupe_scolaire'] ?? '') ?>" placeholder="Auto-détecté si vide"></div>
+                        <div class="col-md-4 mb-2"><label>Groupe Scolaire</label><input type="text" name="groupe_scolaire" class="form-control" value="<?= htmlspecialchars($ecoleAModifier['groupe_scolaire'] ?? '') ?>" placeholder="Laisser vide = calcul automatique"><small class="text-muted">Rempli automatiquement si 2+ écoles partagent le même nom de base (ex: EPP Azito 1/2/3). Laissez vide pour laisser le système décider.</small></div>
                         <div class="col-md-4 mb-2"><label>Effectif Global</label><input type="number" name="effectif_general" class="form-control" value="<?= $ecoleAModifier['effectif_general'] ?? 0 ?>"></div>
                     </div>
                     
@@ -374,12 +419,52 @@ include '../views/layouts/header.php';
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <a href="ecoles.php" class="btn btn-secondary">Annuler</a>
                     <button type="submit" name="<?= $ecoleAModifier ? 'modifier_ecole' : 'ajouter_ecole' ?>" class="btn btn-primary">Enregistrer</button>
                 </div>
             </div>
         </form>
     </div>
 </div>
+
+<script>
+function toggleTousEcoles(caseTete) {
+    document.querySelectorAll('.check-ecole').forEach(function (c) { c.checked = caseTete.checked; });
+    majBarreActionsEcoles();
+}
+
+function majBarreActionsEcoles() {
+    var coches = document.querySelectorAll('.check-ecole:checked');
+    var barre = document.getElementById('barreActionsMasseEcoles');
+    document.getElementById('nbSelectionnesEcoles').textContent = coches.length;
+    barre.classList.toggle('d-none', coches.length === 0);
+    barre.classList.toggle('d-flex', coches.length > 0);
+}
+
+async function actionMasseEcoles(action) {
+    var ids = Array.from(document.querySelectorAll('.check-ecole:checked')).map(function (c) { return c.value; });
+    if (ids.length === 0) return;
+
+    if (action === 'supprimer' && !confirm('Supprimer ' + ids.length + ' école(s) ? Cette action est irréversible et détachera leurs éventuelles écoles rattachées.')) {
+        return;
+    }
+
+    try {
+        var reponse = await fetch('api_bulk_ecoles.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=' + action + '&ids=' + ids.join(',')
+        });
+        var data = await reponse.json();
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Erreur : ' + (data.error || 'inconnue'));
+        }
+    } catch (e) {
+        alert('Erreur réseau : impossible d\'effectuer cette action.');
+    }
+}
+</script>
 
 <?php include '../views/layouts/footer.php'; ?>

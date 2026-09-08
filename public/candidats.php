@@ -1,9 +1,16 @@
 <?php
+session_start();
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 $pageTitle = 'Gestion des Candidats CEPE';
+
+// Les candidats sont rattachés à l'année scolaire consultée ($anneeId, résolu par
+// config/database.php). Toute écriture est bloquée si cette année est archivée.
+if ($anneeLectureSeule && ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['supprimer']))) {
+    die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
+}
 
 // ==========================================
 // TRAITEMENT : IMPORTATION EXCEL (Mise à jour intelligente)
@@ -47,28 +54,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                     $statutDemande = in_array($statutRaw, ['en_cours', 'faite']) ? $statutRaw : 'non_entamee';
 
                     // Gestion École vs Candidat Libre
-                    $nomEcole = trim($row[8] ?? '');
+                    $nomEcole = preg_replace('/\s+/', ' ', trim($row[8] ?? ''));
                     $ecoleId = null;
                     $estLibre = 0;
-                    
+
                     if (strtoupper($nomEcole) === 'LIBRE' || empty($nomEcole)) {
                         $estLibre = 1;
                     } else {
-                        $stmtE = $pdo->prepare("SELECT id FROM ecoles WHERE nom = ? LIMIT 1");
+                        // Recherche insensible à la casse et aux espaces superflus
+                        $stmtE = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
                         $stmtE->execute([$nomEcole]);
                         $resE = $stmtE->fetch();
                         if ($resE) {
                             $ecoleId = $resE['id'];
                         } else {
-                            $erreurs[] = "Ligne $numLigne : École '$nomEcole' introuvable.";
+                            $erreurs[] = "Ligne $numLigne : École '$nomEcole' introuvable (candidat : $nom $prenoms).";
                             continue;
                         }
                     }
 
-                    // Vérification Doublon (Sur Nom + Prénoms + École/Libre)
-                    $checkSql = "SELECT id FROM candidats WHERE nom = ? AND prenoms = ? AND ((ecole_id = ? AND est_candidat_libre = 0) OR (est_candidat_libre = 1 AND ? = 1))";
-                    $checkStmt = $pdo->prepare($checkSql);
-                    $checkStmt->execute([$nom, $prenoms, $ecoleId, $estLibre]);
+                    // Vérification Doublon, dans l'année scolaire consultée : par Matricule DSPS si
+                    // disponible (clé la plus fiable), sinon par Nom + Prénoms + Date de naissance + École/Libre
+                    if (!empty($matricule)) {
+                        $checkStmt = $pdo->prepare("SELECT id FROM candidats WHERE annee_id = ? AND matricule_dsps = ?");
+                        $checkStmt->execute([$anneeId, $matricule]);
+                    } else {
+                        $checkSql = "SELECT id FROM candidats WHERE annee_id = ? AND nom = ? AND prenoms = ? AND date_naissance <=> ? AND ((ecole_id = ? AND est_candidat_libre = 0) OR (est_candidat_libre = 1 AND ? = 1))";
+                        $checkStmt = $pdo->prepare($checkSql);
+                        $checkStmt->execute([$anneeId, $nom, $prenoms, $dateNaiss, $ecoleId, $estLibre]);
+                    }
                     $existing = $checkStmt->fetch();
 
                     if ($existing) {
@@ -78,8 +92,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                         $nbMajs++;
                     } else {
                         // Insertion Nouveau
-                        $ins = $pdo->prepare("INSERT INTO candidats (nom, prenoms, sexe, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        $ins->execute([$nom, $prenoms, $sexe, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre]);
+                        $ins = $pdo->prepare("INSERT INTO candidats (annee_id, nom, prenoms, sexe, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $ins->execute([$anneeId, $nom, $prenoms, $sexe, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre]);
                         $nbAjouts++;
                     }
                 } catch (Exception $e) {
@@ -88,7 +102,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
             }
 
             $msg = "Import terminé : $nbAjouts nouveaux, $nbMajs mis à jour.";
-            if (!empty($erreurs)) $msg .= " <br><small>" . count($erreurs) . " erreurs (voir logs).</small>";
+            if (!empty($erreurs)) {
+                $msg .= " <br><small>" . count($erreurs) . " erreurs (voir détail ci-dessous).</small>";
+                $_SESSION['import_erreurs'] = $erreurs;
+            } else {
+                unset($_SESSION['import_erreurs']);
+            }
             header("Location: candidats.php?msg=" . urlencode($msg));
             exit;
 
@@ -117,8 +136,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajouter_candidat'])) 
     // Si libre, on peut optionally choisir un centre
     $centreId = ($estLibre == 1 && !empty($_POST['centre_examen_id'])) ? (int)$_POST['centre_examen_id'] : null;
 
-    $stmt = $pdo->prepare("INSERT INTO candidats (nom, prenoms, sexe, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre, centre_examen_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$nom, $prenoms, $sexe, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre, $centreId]);
+    $stmt = $pdo->prepare("INSERT INTO candidats (annee_id, nom, prenoms, sexe, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre, centre_examen_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$anneeId, $nom, $prenoms, $sexe, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre, $centreId]);
 
     header("Location: candidats.php");
     exit;
@@ -138,10 +157,11 @@ if (isset($_GET['supprimer'])) {
 // ==========================================
 $filtreEcole = $_GET['ecole_id'] ?? '';
 $filtreStatut = $_GET['statut'] ?? ''; // non_entamee, en_cours, faite
+$filtreValidation = $_GET['validation'] ?? ''; // valide, non_valide
 $filtreRecherche = $_GET['q'] ?? '';
 
-$sql = "SELECT c.*, e.nom as nom_ecole FROM candidats c LEFT JOIN ecoles e ON c.ecole_id = e.id WHERE 1=1";
-$params = [];
+$sql = "SELECT c.*, e.nom as nom_ecole, (c.matricule_verifie = 1 AND c.droits_payes = 1) as est_valide FROM candidats c LEFT JOIN ecoles e ON c.ecole_id = e.id WHERE c.annee_id = ?";
+$params = [$anneeId];
 
 if ($filtreEcole) {
     $sql .= " AND c.ecole_id = ?";
@@ -151,28 +171,53 @@ if ($filtreStatut) {
     $sql .= " AND c.statut_demande = ?";
     $params[] = $filtreStatut;
 }
+if ($filtreValidation === 'valide') {
+    $sql .= " AND c.matricule_verifie = 1 AND c.droits_payes = 1";
+} elseif ($filtreValidation === 'non_valide') {
+    $sql .= " AND (c.matricule_verifie = 0 OR c.droits_payes = 0)";
+}
 if ($filtreRecherche) {
     $sql .= " AND (c.nom LIKE ? OR c.prenoms LIKE ? OR c.matricule_dsps LIKE ?)";
     $t = "%$filtreRecherche%";
     $params[] = $t; $params[] = $t; $params[] = $t;
 }
 
+$whereFiltres = substr($sql, strpos($sql, 'WHERE c.annee_id')); // récupère la clause WHERE seule, réutilisée pour les stats
+
 $sql .= " ORDER BY c.nom ASC";
 $candidats = $pdo->prepare($sql);
 $candidats->execute($params);
 $candidats = $candidats->fetchAll();
 
-// STATISTIQUES GLOBALES
-$statsGlobal = $pdo->query("SELECT 
+// STATISTIQUES — suivent exactement le(s) même(s) filtre(s) que la liste ci-dessus
+$sqlStats = "SELECT 
     COUNT(*) as total,
-    SUM(CASE WHEN sexe='F' THEN 1 ELSE 0 END) as filles,
-    SUM(CASE WHEN sexe='M' THEN 1 ELSE 0 END) as garcons,
-    SUM(CASE WHEN matricule_dsps IS NOT NULL THEN 1 ELSE 0 END) as immatricules,
-    SUM(CASE WHEN matricule_dsps IS NULL THEN 1 ELSE 0 END) as non_immatricules,
-    SUM(CASE WHEN a_acte_naissance=0 AND matricule_dsps IS NULL THEN 1 ELSE 0 END) as sans_acte,
-    SUM(CASE WHEN statut_demande='non_entamee' AND matricule_dsps IS NULL THEN 1 ELSE 0 END) as demande_non_fait,
-    SUM(est_candidat_libre) as candidats_libres
-    FROM candidats")->fetch();
+    SUM(CASE WHEN c.sexe='F' THEN 1 ELSE 0 END) as filles,
+    SUM(CASE WHEN c.sexe='M' THEN 1 ELSE 0 END) as garcons,
+    SUM(CASE WHEN c.matricule_dsps IS NOT NULL THEN 1 ELSE 0 END) as immatricules,
+    SUM(CASE WHEN c.matricule_dsps IS NULL THEN 1 ELSE 0 END) as non_immatricules,
+    SUM(CASE WHEN c.a_acte_naissance=0 AND c.matricule_dsps IS NULL THEN 1 ELSE 0 END) as sans_acte,
+    SUM(CASE WHEN c.statut_demande='non_entamee' AND c.matricule_dsps IS NULL THEN 1 ELSE 0 END) as demande_non_fait,
+    SUM(c.est_candidat_libre) as candidats_libres,
+    SUM(CASE WHEN c.matricule_verifie = 1 AND c.droits_payes = 1 THEN 1 ELSE 0 END) as candidats_valides
+    FROM candidats c LEFT JOIN ecoles e ON c.ecole_id = e.id $whereFiltres";
+$stmtStats = $pdo->prepare($sqlStats);
+$stmtStats->execute($params);
+$statsGlobal = $stmtStats->fetch();
+
+// Contexte : effectif total tous filtres confondus (pour "X sur Y"), sur l'année consultée
+$stmtTotalGeneral = $pdo->prepare("SELECT COUNT(*) FROM candidats WHERE annee_id = ?");
+$stmtTotalGeneral->execute([$anneeId]);
+$totalGeneralBase = (int) $stmtTotalGeneral->fetchColumn();
+
+// Filtre actif ? et nom de l'école filtrée (pour affichage du bandeau)
+$filtreActif = $filtreEcole || $filtreStatut || $filtreValidation || $filtreRecherche;
+$nomEcoleFiltre = null;
+if ($filtreEcole) {
+    $stmtNomE = $pdo->prepare("SELECT nom FROM ecoles WHERE id = ?");
+    $stmtNomE->execute([$filtreEcole]);
+    $nomEcoleFiltre = $stmtNomE->fetchColumn();
+}
 
 // Liste Écoles pour Select
 $ecoles = $pdo->query("SELECT id, nom FROM ecoles ORDER BY nom ASC")->fetchAll();
@@ -184,7 +229,25 @@ include '../views/layouts/header.php';
 
 <!-- Alertes -->
 <?php if (isset($_GET['msg'])): ?>
-    <div class="alert alert-success alert-dismissible fade show"><?= htmlspecialchars($_GET['msg']) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <div class="alert alert-success alert-dismissible fade show"><?= $_GET['msg'] ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+<?php endif; ?>
+
+<?php if (!empty($_SESSION['import_erreurs'])): ?>
+    <div class="alert alert-warning">
+        <button class="btn btn-sm btn-outline-dark mb-2" type="button" data-bs-toggle="collapse" data-bs-target="#detailErreursImport">
+            <i class="bi bi-list-ul"></i> Voir le détail des <?= count($_SESSION['import_erreurs']) ?> erreurs
+        </button>
+        <div class="collapse" id="detailErreursImport">
+            <div style="max-height: 300px; overflow-y: auto;">
+                <ul class="mb-0 small">
+                    <?php foreach ($_SESSION['import_erreurs'] as $err): ?>
+                        <li><?= htmlspecialchars($err) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <?php unset($_SESSION['import_erreurs']); ?>
 <?php endif; ?>
 <?php if (isset($error)): ?>
     <div class="alert alert-danger alert-dismissible fade show"><?= htmlspecialchars($error) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
@@ -198,6 +261,26 @@ include '../views/layouts/header.php';
     </div>
 </div>
 
+<!-- Bandeau de contexte : indique si les stats ci-dessous sont globales ou filtrées -->
+<?php if ($filtreActif): ?>
+    <div class="alert alert-primary d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-funnel-fill"></i>
+            Statistiques filtrées
+            <?php if ($nomEcoleFiltre): ?> — École : <strong><?= htmlspecialchars($nomEcoleFiltre) ?></strong><?php endif; ?>
+            <?php if ($filtreRecherche): ?> — Recherche : « <?= htmlspecialchars($filtreRecherche) ?> »<?php endif; ?>
+            <?php if ($filtreStatut): ?> — Statut demande : <?= htmlspecialchars($filtreStatut) ?><?php endif; ?>
+            <?php if ($filtreValidation): ?> — Candidature : <?= $filtreValidation === 'valide' ? 'Validés' : 'Non validés' ?><?php endif; ?>
+            (<?= $statsGlobal['total'] ?> sur <?= $totalGeneralBase ?> candidats au total)
+        </div>
+        <a href="candidats.php" class="btn btn-sm btn-outline-primary">Réinitialiser les filtres</a>
+    </div>
+<?php else: ?>
+    <div class="alert alert-light border text-muted mb-3">
+        <i class="bi bi-list-ul"></i> Statistiques sur l'ensemble des <?= $totalGeneralBase ?> candidats. Utilisez les filtres ci-dessous pour voir les statistiques d'une école précise.
+    </div>
+<?php endif; ?>
+
 <!-- Stats Cards -->
 <div class="row mb-4">
     <div class="col-md-2"><div class="card text-center bg-primary text-white"><div class="card-body"><h6>Total Élèves</h6><h3><?= $statsGlobal['total'] ?></h3></div></div></div>
@@ -205,6 +288,25 @@ include '../views/layouts/header.php';
     <div class="col-md-2"><div class="card text-center bg-secondary text-white"><div class="card-body"><h6>Garçons</h6><h3><?= $statsGlobal['garcons'] ?></h3></div></div></div>
     <div class="col-md-3"><div class="card text-center bg-success text-white"><div class="card-body"><h6>Immatriculés</h6><h3><?= $statsGlobal['immatricules'] ?></h3></div></div></div>
     <div class="col-md-3"><div class="card text-center bg-danger text-white"><div class="card-body"><h6>Non Immatriculés</h6><h3><?= $statsGlobal['non_immatricules'] ?></h3></div></div></div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-center bg-success text-white h-100">
+            <div class="card-body">
+                <h6>✅ Candidats Validés</h6>
+                <h3 id="compteur-valides"><span id="nb-valides"><?= $statsGlobal['candidats_valides'] ?></span> / <?= $statsGlobal['total'] ?></h3>
+                <small>Matricule vérifié + Droits payés</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8 d-flex align-items-center">
+        <div class="alert alert-secondary mb-0 w-100">
+            <strong>Rappel :</strong> un candidat est <strong>Validé</strong> uniquement lorsque l'IEPP a coché
+            <em>« Matricule vérifié sur DSPS »</em> ET <em>« Droits d'examen payés »</em>.
+            Cliquez sur les icônes du tableau ci-dessous pour basculer chaque case.
+        </div>
+    </div>
 </div>
 
 <!-- Détails Problèmes -->
@@ -222,14 +324,14 @@ include '../views/layouts/header.php';
 </div>
 
 <!-- Filtres -->
-<form method="GET" class="row g-3 mb-4 p-3 bg-light rounded">
+<form method="GET" id="formFiltresCandidats" class="row g-3 mb-4 p-3 bg-light rounded">
     <div class="col-md-4">
         <label class="form-label">Rechercher (Nom/Matricule)</label>
-        <input type="text" name="q" class="form-control" value="<?= htmlspecialchars($filtreRecherche) ?>">
+        <input type="text" name="q" id="inputRechercheCandidats" class="form-control" value="<?= htmlspecialchars($filtreRecherche) ?>" autocomplete="off">
     </div>
     <div class="col-md-3">
         <label class="form-label">Filtrer par École</label>
-        <select name="ecole_id" class="form-select">
+        <select name="ecole_id" class="form-select" onchange="this.form.submit()">
             <option value="">Toutes les écoles</option>
             <?php foreach($ecoles as $e): ?>
                 <option value="<?= $e['id'] ?>" <?= $filtreEcole==$e['id']?'selected':'' ?>><?= htmlspecialchars($e['nom']) ?></option>
@@ -238,17 +340,50 @@ include '../views/layouts/header.php';
     </div>
     <div class="col-md-3">
         <label class="form-label">Statut Immatriculation</label>
-        <select name="statut" class="form-select">
+        <select name="statut" class="form-select" onchange="this.form.submit()">
             <option value="">Tous</option>
             <option value="faite" <?= $filtreStatut=='faite'?'selected':'' ?>>Immatriculés</option>
             <option value="non_entamee" <?= $filtreStatut=='non_entamee'?'selected':'' ?>>Demande non faite</option>
             <option value="en_cours" <?= $filtreStatut=='en_cours'?'selected':'' ?>>En cours</option>
         </select>
     </div>
+    <div class="col-md-3">
+        <label class="form-label">Statut Candidature</label>
+        <select name="validation" class="form-select" onchange="this.form.submit()">
+            <option value="">Tous</option>
+            <option value="valide" <?= $filtreValidation=='valide'?'selected':'' ?>>Validés</option>
+            <option value="non_valide" <?= $filtreValidation=='non_valide'?'selected':'' ?>>Non validés</option>
+        </select>
+    </div>
     <div class="col-md-2 d-flex align-items-end">
-        <button type="submit" class="btn btn-outline-primary w-100">Filtrer</button>
+        <a href="candidats.php" class="btn btn-outline-secondary w-100">Réinitialiser</a>
     </div>
 </form>
+<script>
+// Recherche texte : filtre automatiquement 600ms après la dernière frappe (évite de soumettre à chaque lettre)
+(function () {
+    var champRecherche = document.getElementById('inputRechercheCandidats');
+    var minuteur;
+    champRecherche.addEventListener('input', function () {
+        clearTimeout(minuteur);
+        minuteur = setTimeout(function () {
+            document.getElementById('formFiltresCandidats').submit();
+        }, 600);
+    });
+})();
+</script>
+
+<!-- Barre d'actions en masse (apparaît dès qu'au moins 1 candidat est sélectionné) -->
+<div class="alert alert-primary d-none align-items-center justify-content-between py-2 mb-3" id="barreActionsMasse">
+    <span><strong id="nbSelectionnes">0</strong> candidat(s) sélectionné(s)</span>
+    <div>
+        <button type="button" class="btn btn-sm btn-success" onclick="actionMasseCandidats('matricule_on')"><i class="bi bi-check-square"></i> Vérifier matricule</button>
+        <button type="button" class="btn btn-sm btn-success" onclick="actionMasseCandidats('droits_on')"><i class="bi bi-check-square"></i> Valider droits payés</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="actionMasseCandidats('matricule_off')">Annuler vérif.</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="actionMasseCandidats('droits_off')">Annuler paiement</button>
+        <button type="button" class="btn btn-sm btn-danger" onclick="actionMasseCandidats('supprimer')"><i class="bi bi-trash"></i> Supprimer</button>
+    </div>
+</div>
 
 <!-- Tableau -->
 <div class="card shadow-sm">
@@ -256,23 +391,30 @@ include '../views/layouts/header.php';
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
                 <tr>
-                    <th>Identité</th>
+                    <th><input type="checkbox" id="checkToutCandidats" onclick="toggleTousCandidats(this)"></th>
+                    <th>Nom</th>
+                    <th>Prénoms</th>
                     <th>Sexe</th>
                     <th>École / Statut</th>
                     <th>Naissance</th>
                     <th>Matricule DSPS</th>
                     <th>Acte Naiss.</th>
                     <th>Statut Demande</th>
+                    <th class="text-center">Matricule vérifié</th>
+                    <th class="text-center">Droits payés</th>
+                    <th>Candidature</th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
                 <?php foreach ($candidats as $c): ?>
                 <tr class="<?= $c['est_candidat_libre'] ? 'table-secondary' : '' ?>">
+                    <td><input type="checkbox" class="check-candidat" value="<?= $c['id'] ?>" onchange="majBarreActionsCandidats()"></td>
                     <td>
-                        <strong><?= htmlspecialchars($c['nom']) ?> <?= htmlspecialchars($c['prenoms']) ?></strong>
+                        <strong><?= htmlspecialchars($c['nom']) ?></strong>
                         <?php if($c['est_candidat_libre']): ?><br><span class="badge bg-dark">Candidat Libre</span><?php endif; ?>
                     </td>
+                    <td><?= htmlspecialchars($c['prenoms']) ?></td>
                     <td><span class="badge bg-<?= $c['sexe']=='M'?'primary':'danger' ?>"><?= $c['sexe'] ?></span></td>
                     <td>
                         <?php if($c['est_candidat_libre']): ?>
@@ -300,6 +442,25 @@ include '../views/layouts/header.php';
                         <?php else: ?>
                             <span class="badge bg-danger">Non entamée</span>
                         <?php endif; ?>
+                    </td>
+                    <td class="text-center">
+                        <a href="#" onclick="toggleValidation(event, <?= $c['id'] ?>, 'matricule_verifie', this)" title="Cliquer pour basculer">
+                            <span class="icone-validation"><?= $c['matricule_verifie'] ? '<i class="bi bi-check-square-fill text-success fs-5"></i>' : '<i class="bi bi-square text-muted fs-5"></i>' ?></span>
+                        </a>
+                    </td>
+                    <td class="text-center">
+                        <a href="#" onclick="toggleValidation(event, <?= $c['id'] ?>, 'droits_payes', this)" title="Cliquer pour basculer">
+                            <span class="icone-validation"><?= $c['droits_payes'] ? '<i class="bi bi-check-square-fill text-success fs-5"></i>' : '<i class="bi bi-square text-muted fs-5"></i>' ?></span>
+                        </a>
+                    </td>
+                    <td>
+                        <span class="badge-validation">
+                        <?php if ($c['est_valide']): ?>
+                            <span class="badge bg-success">Validé</span>
+                        <?php else: ?>
+                            <span class="badge bg-secondary">En attente</span>
+                        <?php endif; ?>
+                        </span>
                     </td>
                     <td>
                         <a href="?supprimer=<?= $c['id'] ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Supprimer ce candidat ?')"><i class="bi bi-trash"></i></a>
@@ -408,6 +569,89 @@ function toggleEcoleSelect() {
     document.getElementById('inputLibre').value = isLibre ? '1' : '0';
     document.getElementById('divEcole').style.display = isLibre ? 'none' : 'block';
     document.getElementById('divCentre').style.display = isLibre ? 'block' : 'none';
+}
+
+// Bascule "Matricule vérifié" / "Droits payés" sans recharger la page
+async function toggleValidation(event, id, champ, lienEl) {
+    event.preventDefault();
+
+    try {
+        const reponse = await fetch('api_toggle_candidat.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `id=${id}&champ=${champ}`
+        });
+        const data = await reponse.json();
+
+        if (!data.success) {
+            alert('Erreur : ' + (data.error || 'inconnue'));
+            return;
+        }
+
+        // Met à jour l'icône cliquée
+        const icone = lienEl.querySelector('.icone-validation');
+        const estCoche = (champ === 'matricule_verifie') ? data.matricule_verifie : data.droits_payes;
+        icone.innerHTML = estCoche
+            ? '<i class="bi bi-check-square-fill text-success fs-5"></i>'
+            : '<i class="bi bi-square text-muted fs-5"></i>';
+
+        // Met à jour le badge de statut sur la même ligne
+        const ligne = lienEl.closest('tr');
+        const badgeSpan = ligne.querySelector('.badge-validation');
+        const ancienEtaitValide = badgeSpan.querySelector('.bg-success') !== null;
+        badgeSpan.innerHTML = data.est_valide
+            ? '<span class="badge bg-success">Validé</span>'
+            : '<span class="badge bg-secondary">En attente</span>';
+
+        // Met à jour le compteur global "Candidats Validés"
+        if (data.est_valide && !ancienEtaitValide) {
+            const compteur = document.getElementById('nb-valides');
+            compteur.textContent = parseInt(compteur.textContent) + 1;
+        } else if (!data.est_valide && ancienEtaitValide) {
+            const compteur = document.getElementById('nb-valides');
+            compteur.textContent = parseInt(compteur.textContent) - 1;
+        }
+    } catch (e) {
+        alert('Erreur réseau : impossible de mettre à jour.');
+    }
+}
+// Sélection multiple et actions en masse (candidats)
+function toggleTousCandidats(caseTete) {
+    document.querySelectorAll('.check-candidat').forEach(function (c) { c.checked = caseTete.checked; });
+    majBarreActionsCandidats();
+}
+
+function majBarreActionsCandidats() {
+    var coches = document.querySelectorAll('.check-candidat:checked');
+    var barre = document.getElementById('barreActionsMasse');
+    document.getElementById('nbSelectionnes').textContent = coches.length;
+    barre.classList.toggle('d-none', coches.length === 0);
+    barre.classList.toggle('d-flex', coches.length > 0);
+}
+
+async function actionMasseCandidats(action) {
+    var ids = Array.from(document.querySelectorAll('.check-candidat:checked')).map(function (c) { return c.value; });
+    if (ids.length === 0) return;
+
+    if (action === 'supprimer' && !confirm('Supprimer ' + ids.length + ' candidat(s) ? Cette action est irréversible.')) {
+        return;
+    }
+
+    try {
+        var reponse = await fetch('api_bulk_candidats.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=' + action + '&ids=' + ids.join(',')
+        });
+        var data = await reponse.json();
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Erreur : ' + (data.error || 'inconnue'));
+        }
+    } catch (e) {
+        alert('Erreur réseau : impossible d\'effectuer cette action.');
+    }
 }
 </script>
 

@@ -10,6 +10,15 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 
 $pageTitle = $pageTitle ?? 'Gestion CEPE';
 
+// Variables de contexte année (résolues par config/database.php, avec repli défensif
+// si une page inclut ce header sans avoir chargé la config au préalable).
+$anneesDisponibles = $anneesDisponibles ?? [];
+$anneeSelectionnee = $anneeSelectionnee ?? null;
+$anneeLectureSeule = $anneeLectureSeule ?? false;
+$ANNEE_SCOLAIRE = $ANNEE_SCOLAIRE ?? ($anneeSelectionnee['annee_scolaire'] ?? 'N/A');
+
+$retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? ('?' . $qs) : '');
+
 ?>
 
 <!DOCTYPE html>
@@ -325,6 +334,76 @@ $pageTitle = $pageTitle ?? 'Gestion CEPE';
             color: var(--ci-orange);
 
             margin-right: 6px;
+        }
+
+
+        .sidebar-year select {
+
+            width: 100%;
+
+            margin-top: 6px;
+
+            padding: 6px 8px;
+
+            border-radius: 6px;
+
+            border: 1px solid rgba(255, 255, 255, 0.18);
+
+            background: rgba(255, 255, 255, 0.08);
+
+            color: white;
+
+            font-size: 12px;
+
+            font-weight: 600;
+        }
+
+
+        .sidebar-year select option {
+            color: var(--text-dark);
+        }
+
+
+        .badge-readonly {
+
+            display: inline-flex;
+
+            align-items: center;
+
+            gap: 5px;
+
+            margin-top: 8px;
+
+            padding: 4px 8px;
+
+            border-radius: 5px;
+
+            background: rgba(220, 53, 69, 0.18);
+
+            color: #ffb3ba;
+
+            font-size: 10px;
+
+            font-weight: 700;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.4px;
+        }
+
+
+        .topbar-year.is-readonly {
+
+            border-color: #f1aeb5;
+
+            background: #fdf2f3;
+
+            color: #a71d2a;
+        }
+
+
+        .topbar-year.is-readonly i {
+            color: #a71d2a;
         }
 
 
@@ -920,13 +999,13 @@ $pageTitle = $pageTitle ?? 'Gestion CEPE';
         </div>
 
 
-        <!-- ANNÉE ACTIVE -->
+        <!-- ANNÉE SCOLAIRE (sélecteur + archivage) -->
 
         <div class="sidebar-year">
 
             <span class="sidebar-year-label">
 
-                Année scolaire active
+                Année scolaire consultée
 
             </span>
 
@@ -935,9 +1014,27 @@ $pageTitle = $pageTitle ?? 'Gestion CEPE';
 
                 <i class="bi bi-calendar3"></i>
 
-                2026-2027
+                <?= htmlspecialchars($ANNEE_SCOLAIRE) ?>
 
             </div>
+
+
+            <?php if (count($anneesDisponibles) > 1): ?>
+                <select onchange="window.location.href = 'select_annee.php?annee_id=' + this.value + '&retour=<?= urlencode($retourSelecteur) ?>';">
+                    <?php foreach ($anneesDisponibles as $a): ?>
+                        <option value="<?= (int) $a['id'] ?>" <?= ((int) $a['id'] === (int) ($anneeSelectionnee['id'] ?? 0)) ? 'selected' : '' ?>>
+                            <?= htmlspecialchars($a['annee_scolaire']) ?><?= $a['statut'] === 'archive' ? ' (archivée)' : '' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            <?php endif; ?>
+
+
+            <?php if ($anneeLectureSeule): ?>
+                <div class="badge-readonly">
+                    <i class="bi bi-lock-fill"></i> Lecture seule
+                </div>
+            <?php endif; ?>
 
         </div>
 
@@ -1000,7 +1097,7 @@ $pageTitle = $pageTitle ?? 'Gestion CEPE';
                     <i class="bi bi-person-badge"></i>
 
                     <span>
-                        Enseignants
+                        Personnel
                     </span>
 
                 </a>
@@ -1085,6 +1182,24 @@ $pageTitle = $pageTitle ?? 'Gestion CEPE';
 
                     <span>
                         Affectations
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'resultats.php' ? 'active' : '' ?>"
+                    href="resultats.php"
+                >
+
+                    <i class="bi bi-clipboard-data"></i>
+
+                    <span>
+                        Résultats
                     </span>
 
                 </a>
@@ -1205,15 +1320,18 @@ $pageTitle = $pageTitle ?? 'Gestion CEPE';
             </div>
 
 
-            <div class="topbar-year">
+            <div class="topbar-year <?= $anneeLectureSeule ? 'is-readonly' : '' ?>">
 
-                <i class="bi bi-calendar-check"></i>
+                <i class="bi bi-<?= $anneeLectureSeule ? 'lock-fill' : 'calendar-check' ?>"></i>
 
                 Année scolaire :
 
                 <strong>
-                    2026-2027
+                    <?= htmlspecialchars($ANNEE_SCOLAIRE) ?>
                 </strong>
+                <?php if ($anneeLectureSeule): ?>
+                    — archivée (lecture seule)
+                <?php endif; ?>
 
             </div>
 
