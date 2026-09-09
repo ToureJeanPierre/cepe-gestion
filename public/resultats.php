@@ -6,14 +6,11 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/matieres_config.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 $pageTitle = 'Résultats & Notes';
-
-// Seuil d'admission CEPE (moyenne sur 20). À ajuster si un barème officiel différent
-// est communiqué avec la trame DSPS (point laissé "à plus tard" par l'utilisateur).
-const SEUIL_ADMISSION = 10.0;
 
 $success = null;
 $error = null;
@@ -52,7 +49,11 @@ if (!$examenActif) {
     $examenId = (int) $examenActif['id'];
 }
 $estFinal = $examenActif['code'] === 'CEPE_FINAL';
-$estComposition = in_array($examenActif['code'], ['COMPO_1', 'COMPO_2'], true);
+$estComposition = estExamenTypeComposition($examenActif['code']);
+
+$matieres = matieresPourExamen($examenActif['code']); // matière => note max
+$listeMatieres = array_keys($matieres);
+$diviseur = diviseurPourExamen($examenActif['code']);
 
 /*
 |--------------------------------------------------------------------------
@@ -60,31 +61,34 @@ $estComposition = in_array($examenActif['code'], ['COMPO_1', 'COMPO_2'], true);
 |--------------------------------------------------------------------------
 */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enregistrer_notes'])) {
-    $notesPost = $_POST['note'] ?? [];
+    $notesPost = $_POST['notes'] ?? [];
     $absentsPost = $_POST['absent'] ?? [];
 
     $stmtUpsert = $pdo->prepare("
-        INSERT INTO notes (candidat_id, examen_id, note, present, source)
-        VALUES (?, ?, ?, ?, 'saisie')
+        INSERT INTO notes (candidat_id, examen_id, matiere, note, present, source)
+        VALUES (?, ?, ?, ?, ?, 'saisie')
         ON DUPLICATE KEY UPDATE note = VALUES(note), present = VALUES(present), source = 'saisie'
     ");
 
     $nb = 0;
-    foreach ($notesPost as $candidatId => $valeurNote) {
+    foreach ($notesPost as $candidatId => $notesParIndex) {
         $candidatId = (int) $candidatId;
         if ($candidatId <= 0) continue;
 
         $estAbsent = isset($absentsPost[$candidatId]);
-        $note = ($estAbsent || $valeurNote === '') ? null : round((float) str_replace(',', '.', $valeurNote), 2);
-        if ($note !== null) {
-            $note = max(0, min(20, $note));
-        }
 
-        $stmtUpsert->execute([$candidatId, $examenId, $note, $estAbsent ? 0 : 1]);
+        foreach ($listeMatieres as $index => $matiere) {
+            $valeurBrute = $notesParIndex[$index] ?? '';
+            $note = ($estAbsent || $valeurBrute === '') ? null : round((float) str_replace(',', '.', $valeurBrute), 2);
+            if ($note !== null) {
+                $note = max(0, min($matieres[$matiere], $note));
+            }
+            $stmtUpsert->execute([$candidatId, $examenId, $matiere, $note, $estAbsent ? 0 : 1]);
+        }
         $nb++;
     }
 
-    header("Location: resultats.php?examen_id=$examenId&msg=" . urlencode("$nb note(s) enregistrée(s)."));
+    header("Location: resultats.php?examen_id=$examenId&msg=" . urlencode("$nb candidat(s) enregistré(s)."));
     exit;
 }
 
@@ -104,22 +108,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_notes'])) {
             $erreurs = [];
 
             $stmtUpsert = $pdo->prepare("
-                INSERT INTO notes (candidat_id, examen_id, note, present, source)
-                VALUES (?, ?, ?, ?, 'import')
+                INSERT INTO notes (candidat_id, examen_id, matiere, note, present, source)
+                VALUES (?, ?, ?, ?, ?, 'import')
                 ON DUPLICATE KEY UPDATE note = VALUES(note), present = VALUES(present), source = 'import'
             ");
 
+            // Colonnes attendues : A:Matricule DSPS (ou vide), B:Nom, C:Prénoms,
+            // D..D+n-1 : une colonne par matière (dans l'ordre de $listeMatieres),
+            // dernière colonne : Présent (O/N)
             foreach ($rows as $index => $row) {
                 $numLigne = $index + 2;
                 try {
-                    // Colonnes attendues : A:Matricule DSPS (ou vide), B:Nom, C:Prénoms, D:Note (/20), E:Présent(O/N)
                     $matricule = trim($row[0] ?? '');
                     $nom = trim($row[1] ?? '');
                     $prenoms = trim($row[2] ?? '');
-                    $noteRaw = trim((string) ($row[3] ?? ''));
-                    $presentRaw = strtoupper(trim($row[4] ?? 'O'));
+                    $colonneMatieres = 3;
+                    $presentRaw = strtoupper(trim($row[$colonneMatieres + count($listeMatieres)] ?? 'O'));
                     $present = !in_array($presentRaw, ['N', 'NON', '0'], true) ? 1 : 0;
-                    $note = ($present && $noteRaw !== '') ? max(0, min(20, round((float) str_replace(',', '.', $noteRaw), 2))) : null;
 
                     $candidat = null;
                     if (!empty($matricule)) {
@@ -138,14 +143,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_notes'])) {
                         continue;
                     }
 
-                    $stmtUpsert->execute([$candidat['id'], $examenId, $note, $present]);
+                    foreach ($listeMatieres as $i => $matiere) {
+                        $noteRaw = trim((string) ($row[$colonneMatieres + $i] ?? ''));
+                        $note = ($present && $noteRaw !== '') ? max(0, min($matieres[$matiere], round((float) str_replace(',', '.', $noteRaw), 2))) : null;
+                        $stmtUpsert->execute([$candidat['id'], $examenId, $matiere, $note, $present]);
+                    }
                     $nbMajs++;
                 } catch (Exception $e) {
                     $erreurs[] = "Ligne $numLigne : " . $e->getMessage();
                 }
             }
 
-            $msg = "Import terminé : $nbMajs note(s) enregistrée(s).";
+            $msg = "Import terminé : $nbMajs candidat(s) mis à jour.";
             if ($erreurs) {
                 $msg .= " <br><small>" . count($erreurs) . " erreur(s) (voir détail ci-dessous).</small>";
                 $_SESSION['import_erreurs_notes'] = $erreurs;
@@ -174,18 +183,16 @@ $filtreRecherche = $_GET['q'] ?? '';
 
 $sql = "
     SELECT c.id, c.nom, c.prenoms, c.matricule_dsps, c.est_candidat_libre, c.ecole_id,
-           COALESCE(e.nom, 'Candidats Libres') AS nom_ecole,
-           n.note, n.present
+           COALESCE(e.nom, 'Candidats Libres') AS nom_ecole
     FROM candidats c
     LEFT JOIN ecoles e ON e.id = c.ecole_id
-    LEFT JOIN notes n ON n.candidat_id = c.id AND n.examen_id = ?
     WHERE c.annee_id = ?
       AND (
             (c.est_candidat_libre = 0 AND c.matricule_verifie = 1 AND c.droits_payes = 1)
          OR (c.est_candidat_libre = 1 AND ? = 1)
       )
 ";
-$params = [$examenId, $anneeId, $estFinal ? 1 : 0];
+$params = [$anneeId, $estFinal ? 1 : 0];
 
 if ($filtreEcole) {
     $sql .= " AND c.ecole_id = ?";
@@ -203,6 +210,16 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $candidats = $stmt->fetchAll();
 
+// Notes déjà saisies pour cet examen, indexées par candidat puis par matière
+$notesExistantes = [];
+if ($candidats) {
+    $stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+    $stmtNotes->execute([$examenId]);
+    foreach ($stmtNotes->fetchAll() as $n) {
+        $notesExistantes[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+    }
+}
+
 $groupes = [];
 foreach ($candidats as $c) {
     $groupes[$c['nom_ecole']][] = $c;
@@ -210,17 +227,33 @@ foreach ($candidats as $c) {
 
 // Statistiques sur l'ensemble filtré
 $total = count($candidats);
-$presents = 0;
+$notesCompletes = 0;
 $admis = 0;
+$absents = 0;
 foreach ($candidats as $c) {
-    if ($c['note'] !== null) {
-        $presents++;
-        if ((float) $c['note'] >= SEUIL_ADMISSION) {
+    $notesCandidat = $notesExistantes[$c['id']] ?? [];
+    $estAbsentC = false;
+    $notesParMatiere = [];
+    foreach ($listeMatieres as $matiere) {
+        $ligneNote = $notesCandidat[$matiere] ?? null;
+        if ($ligneNote && (int) $ligneNote['present'] === 0) {
+            $estAbsentC = true;
+        }
+        $notesParMatiere[$matiere] = $ligneNote['note'] ?? null;
+    }
+    if ($estAbsentC) {
+        $absents++;
+        continue;
+    }
+    $moyenne = calculerMoyenne20($notesParMatiere, $examenActif['code']);
+    if ($moyenne !== null) {
+        $notesCompletes++;
+        if ($moyenne >= SEUIL_ADMISSION_CEPE) {
             $admis++;
         }
     }
 }
-$tauxReussite = $presents > 0 ? round(($admis / $presents) * 100, 1) : 0;
+$tauxReussite = $notesCompletes > 0 ? round(($admis / $notesCompletes) * 100, 1) : 0;
 
 // Liste des écoles pour le filtre
 $ecoles = $pdo->query("SELECT id, nom FROM ecoles ORDER BY nom ASC")->fetchAll();
@@ -284,11 +317,19 @@ include '../views/layouts/header.php';
     <div class="alert alert-info"><i class="bi bi-info-circle"></i> Composition organisée par les écoles : l'IEPP reçoit et saisit ici les notes transmises par les directeurs.</div>
 <?php endif; ?>
 
+<div class="alert alert-light border small">
+    <strong>Barème :</strong>
+    <?php foreach ($matieres as $matiere => $max): ?>
+        <?= htmlspecialchars($matiere) ?> /<?= $max ?> &nbsp;·&nbsp;
+    <?php endforeach; ?>
+    Total /<?= array_sum($matieres) ?> ÷ <?= $diviseur ?> = Moyenne /20
+</div>
+
 <!-- Stats -->
 <div class="row g-3 mb-4">
     <div class="col-md-3"><?php statCard('bi-people', 'navy', (string) $total, 'Total'); ?></div>
-    <div class="col-md-3"><?php statCard('bi-pencil-square', 'blue', (string) $presents, 'Notes saisies'); ?></div>
-    <div class="col-md-3"><?php statCard('bi-patch-check', 'green', (string) $admis, 'Admis (≥ ' . SEUIL_ADMISSION . '/20)'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-pencil-square', 'blue', (string) $notesCompletes, 'Notes complètes'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-patch-check', 'green', (string) $admis, 'Admis (≥ ' . SEUIL_ADMISSION_CEPE . '/20)'); ?></div>
     <div class="col-md-3"><?php statCard('bi-graph-up', 'orange', $tauxReussite . '%', 'Taux de réussite'); ?></div>
 </div>
 
@@ -305,34 +346,50 @@ include '../views/layouts/header.php';
                         <th>Nom</th>
                         <th>Prénoms</th>
                         <th>Matricule</th>
-                        <th style="width:120px">Note /20</th>
-                        <th class="text-center" style="width:90px">Absent</th>
+                        <?php foreach ($matieres as $matiere => $max): ?>
+                            <th style="width:90px"><?= htmlspecialchars($matiere) ?><br><small class="text-muted">/<?= $max ?></small></th>
+                        <?php endforeach; ?>
+                        <th style="width:80px">Moyenne /20</th>
+                        <th class="text-center" style="width:80px">Absent</th>
                         <th>Résultat</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($lignes as $c): ?>
                         <?php
-                        $estAbsentActuel = $c['note'] === null && (int) ($c['present'] ?? 1) === 0;
-                        $estAdmis = $c['note'] !== null && (float) $c['note'] >= SEUIL_ADMISSION;
+                        $notesCandidat = $notesExistantes[$c['id']] ?? [];
+                        $estAbsentActuel = false;
+                        $notesParMatiere = [];
+                        foreach ($listeMatieres as $matiere) {
+                            $ligneNote = $notesCandidat[$matiere] ?? null;
+                            if ($ligneNote && (int) $ligneNote['present'] === 0) {
+                                $estAbsentActuel = true;
+                            }
+                            $notesParMatiere[$matiere] = $ligneNote['note'] ?? null;
+                        }
+                        $moyenne = $estAbsentActuel ? null : calculerMoyenne20($notesParMatiere, $examenActif['code']);
+                        $estAdmis = $moyenne !== null && $moyenne >= SEUIL_ADMISSION_CEPE;
                         ?>
                         <tr>
                             <td><?= htmlspecialchars($c['nom']) ?></td>
                             <td><?= htmlspecialchars($c['prenoms']) ?></td>
                             <td><code><?= htmlspecialchars($c['matricule_dsps'] ?? '-') ?></code></td>
-                            <td>
-                                <input type="number" min="0" max="20" step="0.25" class="form-control form-control-sm champ-note"
-                                       name="note[<?= $c['id'] ?>]" value="<?= $c['note'] !== null ? htmlspecialchars($c['note']) : '' ?>"
-                                       <?= $estAbsentActuel ? 'disabled' : '' ?>>
-                            </td>
+                            <?php foreach ($listeMatieres as $index => $matiere): ?>
+                                <td>
+                                    <input type="number" min="0" max="<?= $matieres[$matiere] ?>" step="0.25" class="form-control form-control-sm champ-note"
+                                           name="notes[<?= $c['id'] ?>][<?= $index ?>]" value="<?= $notesParMatiere[$matiere] !== null ? htmlspecialchars($notesParMatiere[$matiere]) : '' ?>"
+                                           <?= $estAbsentActuel ? 'disabled' : '' ?>>
+                                </td>
+                            <?php endforeach; ?>
+                            <td class="text-center fw-bold"><?= $moyenne !== null ? htmlspecialchars($moyenne) : '—' ?></td>
                             <td class="text-center">
                                 <input type="checkbox" class="case-absent" name="absent[<?= $c['id'] ?>]" value="1" <?= $estAbsentActuel ? 'checked' : '' ?> onchange="basculerAbsent(this)">
                             </td>
                             <td>
                                 <?php if ($estAbsentActuel): ?>
                                     <span class="badge bg-secondary">Absent</span>
-                                <?php elseif ($c['note'] === null): ?>
-                                    <span class="badge bg-light text-dark border">Non saisi</span>
+                                <?php elseif ($moyenne === null): ?>
+                                    <span class="badge bg-light text-dark border">Incomplet</span>
                                 <?php elseif ($estAdmis): ?>
                                     <span class="badge bg-success">Admis</span>
                                 <?php else: ?>
@@ -361,7 +418,11 @@ include '../views/layouts/header.php';
             <input type="hidden" name="examen_id" value="<?= $examenId ?>">
             <div class="modal-header"><h5 class="modal-title">Importer les notes (Excel)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
-                <p class="small text-muted">Colonnes attendues : Matricule DSPS (ou vide), Nom, Prénoms, Note /20, Présent (O/N).</p>
+                <p class="small text-muted">
+                    Colonnes attendues, dans cet ordre : Matricule DSPS (ou vide), Nom, Prénoms,
+                    <?php foreach ($listeMatieres as $matiere): ?><?= htmlspecialchars($matiere) ?> (/<?= $matieres[$matiere] ?>), <?php endforeach; ?>
+                    Présent (O/N).
+                </p>
                 <input type="file" name="fichier_notes" class="form-control" accept=".xlsx,.xls,.csv" required>
             </div>
             <div class="modal-footer">
@@ -375,9 +436,10 @@ include '../views/layouts/header.php';
 <script>
 function basculerAbsent(caseAbsent) {
     var ligne = caseAbsent.closest('tr');
-    var champNote = ligne.querySelector('.champ-note');
-    champNote.disabled = caseAbsent.checked;
-    if (caseAbsent.checked) champNote.value = '';
+    ligne.querySelectorAll('.champ-note').forEach(function (champ) {
+        champ.disabled = caseAbsent.checked;
+        if (caseAbsent.checked) champ.value = '';
+    });
 }
 </script>
 

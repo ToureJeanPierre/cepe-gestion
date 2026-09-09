@@ -1,6 +1,7 @@
 <?php
 
 require_once '../config/database.php';
+require_once __DIR__ . '/../src/matieres_config.php';
 
 $pageTitle = 'Documents & Statistiques';
 
@@ -35,21 +36,67 @@ $stmtRepart->execute([$anneeId]);
 $repartCandidats = $stmtRepart->fetch();
 
 // Taux de réussite par secteur (Public/Privé), basé sur l'examen sélectionné
-const SEUIL_ADMISSION_DOC = 10.0;
+// (moyenne /20 calculée à partir des notes par matière, cf. matieres_config.php)
 $reussiteParSecteur = [];
 if ($examenId) {
-    $stmt = $pdo->prepare("
-        SELECT e.statut,
-            COUNT(*) AS total_notes,
-            SUM(CASE WHEN n.note >= ? THEN 1 ELSE 0 END) AS admis
-        FROM candidats c
-        INNER JOIN ecoles e ON e.id = c.ecole_id
-        INNER JOIN notes n ON n.candidat_id = c.id AND n.examen_id = ?
-        WHERE c.annee_id = ? AND n.note IS NOT NULL
-        GROUP BY e.statut
-    ");
-    $stmt->execute([SEUIL_ADMISSION_DOC, $examenId, $anneeId]);
-    $reussiteParSecteur = $stmt->fetchAll();
+    $examenPourStats = null;
+    foreach ($examens as $e) {
+        if ((int) $e['id'] === $examenId) { $examenPourStats = $e; break; }
+    }
+    if ($examenPourStats) {
+        $listeMatieresStats = array_keys(matieresPourExamen($examenPourStats['code']));
+        $estFinalStats = $examenPourStats['code'] === 'CEPE_FINAL';
+
+        $stmt = $pdo->prepare("
+            SELECT c.id, e.statut
+            FROM candidats c
+            LEFT JOIN ecoles e ON e.id = c.ecole_id
+            WHERE c.annee_id = ?
+              AND (
+                    (c.est_candidat_libre = 0 AND c.matricule_verifie = 1 AND c.droits_payes = 1)
+                 OR (c.est_candidat_libre = 1 AND ? = 1)
+              )
+        ");
+        $stmt->execute([$anneeId, $estFinalStats ? 1 : 0]);
+        $candidatsStats = $stmt->fetchAll();
+
+        $notesParCandidatStats = [];
+        $stmtNotesStats = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+        $stmtNotesStats->execute([$examenId]);
+        foreach ($stmtNotesStats->fetchAll() as $n) {
+            $notesParCandidatStats[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+        }
+
+        $parSecteurStats = ['Public' => ['total_notes' => 0, 'admis' => 0], 'Privé' => ['total_notes' => 0, 'admis' => 0]];
+        foreach ($candidatsStats as $c) {
+            $secteur = $c['statut'] ?? null;
+            if (!isset($parSecteurStats[$secteur])) continue;
+
+            $notesC = $notesParCandidatStats[(int) $c['id']] ?? [];
+            $absent = false;
+            $notesParMatiereC = [];
+            foreach ($listeMatieresStats as $matiere) {
+                $ln = $notesC[$matiere] ?? null;
+                if ($ln && (int) $ln['present'] === 0) $absent = true;
+                $notesParMatiereC[$matiere] = $ln['note'] ?? null;
+            }
+            if ($absent) continue;
+
+            $moyenneC = calculerMoyenne20($notesParMatiereC, $examenPourStats['code']);
+            if ($moyenneC === null) continue;
+
+            $parSecteurStats[$secteur]['total_notes']++;
+            if ($moyenneC >= SEUIL_ADMISSION_CEPE) {
+                $parSecteurStats[$secteur]['admis']++;
+            }
+        }
+
+        foreach ($parSecteurStats as $statut => $donnees) {
+            if ($donnees['total_notes'] > 0) {
+                $reussiteParSecteur[] = array_merge(['statut' => $statut], $donnees);
+            }
+        }
+    }
 }
 
 // Bilan de couverture du personnel encadrant

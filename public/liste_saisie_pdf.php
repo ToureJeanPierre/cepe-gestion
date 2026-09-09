@@ -3,6 +3,7 @@
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
+require_once __DIR__ . '/../src/matieres_config.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -21,6 +22,7 @@ if (!$examen) {
     die("Examen introuvable pour l'année scolaire consultée.");
 }
 $estFinal = $examen['code'] === 'CEPE_FINAL';
+$matieres = matieresPourExamen($examen['code']);
 
 /*
 |--------------------------------------------------------------------------
@@ -64,7 +66,8 @@ foreach ($candidats as $c) {
 $html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '
     h2 { font-size: 12px; color: #17365d; margin-top: 20px; border-bottom: 1px solid #17365d; padding-bottom: 3px; }
     h3 { font-size: 11px; color: #495057; margin-top: 10px; }
-    .col-note { width: 60px; text-align: center; }
+    .col-note { width: 55px; text-align: center; }
+    table.doc-table th, table.doc-table td { font-size: 9px; }
     .page-break { page-break-before: always; }
 </style></head><body>';
 
@@ -88,10 +91,18 @@ foreach ($groupes as $nomEcole => $lignes) {
             $html .= '<p><em>Aucun candidat.</em></p>';
             continue;
         }
-        $html .= '<table><thead><tr><th>#</th><th>Nom</th><th>Prénoms</th><th>Matricule DSPS</th><th class="col-note">Note /20</th></tr></thead><tbody>';
+        $html .= '<table class="doc-table"><thead><tr><th>#</th><th>Nom</th><th>Prénoms</th><th>Matricule DSPS</th>';
+        foreach ($matieres as $matiere => $max) {
+            $html .= '<th class="col-note">' . htmlspecialchars($matiere) . '<br>/' . $max . '</th>';
+        }
+        $html .= '</tr></thead><tbody>';
         $i = 1;
         foreach ($section as $c) {
-            $html .= '<tr><td>' . $i++ . '</td><td>' . htmlspecialchars($c['nom']) . '</td><td>' . htmlspecialchars($c['prenoms']) . '</td><td>' . htmlspecialchars($c['matricule_dsps'] ?? '-') . '</td><td class="col-note"></td></tr>';
+            $html .= '<tr><td>' . $i++ . '</td><td>' . htmlspecialchars($c['nom']) . '</td><td>' . htmlspecialchars($c['prenoms']) . '</td><td>' . htmlspecialchars($c['matricule_dsps'] ?? '-') . '</td>';
+            foreach ($matieres as $matiere => $max) {
+                $html .= '<td class="col-note"></td>';
+            }
+            $html .= '</tr>';
         }
         $html .= '</tbody></table>';
     }
@@ -112,6 +123,6 @@ $options = new Options();
 $options->set('isRemoteEnabled', false);
 $dompdf = new Dompdf($options);
 $dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
+$dompdf->setPaper('A4', 'landscape');
 $dompdf->render();
 $dompdf->stream('listes_saisie_' . $examen['code'] . '.pdf', ['Attachment' => false]);

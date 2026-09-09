@@ -2,6 +2,7 @@
 
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/matieres_config.php';
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -19,7 +20,8 @@ if (!$examen) {
     die("Examen introuvable pour l'année scolaire consultée.");
 }
 
-const SEUIL_ADMISSION_EXPORT = 10.0;
+$matieres = matieresPourExamen($examen['code']);
+$listeMatieres = array_keys($matieres);
 
 /*
 |--------------------------------------------------------------------------
@@ -34,14 +36,13 @@ const SEUIL_ADMISSION_EXPORT = 10.0;
 */
 $sql = "
     SELECT
+        c.id AS candidat_id,
         COALESCE(t.code_dsps, e.code_dsps) AS code_dsps_effectif,
         COALESCE(t.nom, e.nom) AS nom_ecole_effectif,
-        c.nom, c.prenoms, c.sexe, c.date_naissance, c.matricule_dsps,
-        n.note, n.present
+        c.nom, c.prenoms, c.sexe, c.date_naissance, c.matricule_dsps
     FROM candidats c
     INNER JOIN ecoles e ON e.id = c.ecole_id
     LEFT JOIN ecoles t ON t.id = e.ecole_tutrice_id
-    LEFT JOIN notes n ON n.candidat_id = c.id AND n.examen_id = ?
     WHERE c.annee_id = ?
       AND c.est_candidat_libre = 0
       AND c.matricule_verifie = 1
@@ -52,8 +53,16 @@ $sql = "
     ORDER BY code_dsps_effectif ASC, c.nom ASC, c.prenoms ASC
 ";
 $stmt = $pdo->prepare($sql);
-$stmt->execute([$examenId, $anneeId]);
+$stmt->execute([$anneeId]);
 $lignes = $stmt->fetchAll();
+
+// Notes par matière pour cet examen, indexées par candidat
+$notesParCandidat = [];
+$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+$stmtNotes->execute([$examenId]);
+foreach ($stmtNotes->fetchAll() as $n) {
+    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+}
 
 $spreadsheet = new Spreadsheet();
 $sheet = $spreadsheet->getActiveSheet();
@@ -61,28 +70,51 @@ $sheet->setTitle('Export DSPS');
 
 // NOTE : trame par défaut, à ajuster une fois le modèle Excel officiel DSPS fourni
 // (ordre des colonnes précis, laissé "à plus tard" par l'IEPP).
-$entetes = ['Code DSPS', 'École', 'Nom', 'Prénoms', 'Sexe', 'Date de naissance', 'Matricule DSPS', 'Note /20', 'Résultat'];
+$entetes = array_merge(
+    ['Code DSPS', 'École', 'Nom', 'Prénoms', 'Sexe', 'Date de naissance', 'Matricule DSPS'],
+    array_map(fn ($m) => $m . ' /' . $matieres[$m], $listeMatieres),
+    ['Moyenne /20', 'Résultat']
+);
+$derniereColonne = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($entetes));
 $sheet->fromArray($entetes, null, 'A1');
-$sheet->getStyle('A1:I1')->getFont()->setBold(true);
+$sheet->getStyle('A1:' . $derniereColonne . '1')->getFont()->setBold(true);
 
 $ligneExcel = 2;
 foreach ($lignes as $l) {
-    $resultat = $l['note'] === null ? '' : ((float) $l['note'] >= SEUIL_ADMISSION_EXPORT ? 'Admis' : 'Ajourné');
-    $sheet->fromArray([
-        $l['code_dsps_effectif'],
-        $l['nom_ecole_effectif'],
-        $l['nom'],
-        $l['prenoms'],
-        $l['sexe'],
-        $l['date_naissance'] ? date('d/m/Y', strtotime($l['date_naissance'])) : '',
-        $l['matricule_dsps'],
-        $l['note'],
-        $resultat,
-    ], null, 'A' . $ligneExcel);
+    $notesCandidat = $notesParCandidat[(int) $l['candidat_id']] ?? [];
+    $estAbsent = false;
+    $notesParMatiere = [];
+    $valeursMatieres = [];
+    foreach ($listeMatieres as $matiere) {
+        $ligneNote = $notesCandidat[$matiere] ?? null;
+        if ($ligneNote && (int) $ligneNote['present'] === 0) {
+            $estAbsent = true;
+        }
+        $notesParMatiere[$matiere] = $ligneNote['note'] ?? null;
+        $valeursMatieres[] = $ligneNote['note'] ?? '';
+    }
+    $moyenne = $estAbsent ? null : calculerMoyenne20($notesParMatiere, $examen['code']);
+    $resultat = $estAbsent ? 'Absent' : ($moyenne === null ? '' : ($moyenne >= SEUIL_ADMISSION_CEPE ? 'Admis' : 'Ajourné'));
+
+    $ligne = array_merge(
+        [
+            $l['code_dsps_effectif'],
+            $l['nom_ecole_effectif'],
+            $l['nom'],
+            $l['prenoms'],
+            $l['sexe'],
+            $l['date_naissance'] ? date('d/m/Y', strtotime($l['date_naissance'])) : '',
+            $l['matricule_dsps'],
+        ],
+        $valeursMatieres,
+        [$moyenne, $resultat]
+    );
+    $sheet->fromArray($ligne, null, 'A' . $ligneExcel);
     $ligneExcel++;
 }
 
-foreach (range('A', 'I') as $col) {
+foreach (range(1, count($entetes)) as $i) {
+    $col = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($i);
     $sheet->getColumnDimension($col)->setAutoSize(true);
 }
 

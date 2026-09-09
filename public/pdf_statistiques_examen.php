@@ -3,11 +3,10 @@
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
+require_once __DIR__ . '/../src/matieres_config.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
-
-const SEUIL_ADMISSION_STATS = 10.0;
 
 $examenId = isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : 0;
 if (!$examenId || !$anneeId) {
@@ -21,25 +20,60 @@ if (!$examen) {
     die("Examen introuvable pour l'année scolaire consultée.");
 }
 
+$listeMatieres = array_keys(matieresPourExamen($examen['code']));
+
+// Candidats de cet examen (officiels validés + libres si Final) avec le secteur de leur école
+$estFinal = $examen['code'] === 'CEPE_FINAL';
 $stmt = $pdo->prepare("
-    SELECT e.statut,
-        COUNT(*) AS effectif,
-        SUM(CASE WHEN n.note >= ? THEN 1 ELSE 0 END) AS admis
+    SELECT c.id, e.statut
     FROM candidats c
-    INNER JOIN ecoles e ON e.id = c.ecole_id
-    INNER JOIN notes n ON n.candidat_id = c.id AND n.examen_id = ?
-    WHERE c.annee_id = ? AND n.note IS NOT NULL
-    GROUP BY e.statut
+    LEFT JOIN ecoles e ON e.id = c.ecole_id
+    WHERE c.annee_id = ?
+      AND (
+            (c.est_candidat_libre = 0 AND c.matricule_verifie = 1 AND c.droits_payes = 1)
+         OR (c.est_candidat_libre = 1 AND ? = 1)
+      )
 ");
-$stmt->execute([SEUIL_ADMISSION_STATS, $examenId, $anneeId]);
-$parSecteur = [];
-foreach ($stmt->fetchAll() as $row) {
-    $parSecteur[$row['statut']] = ['effectif' => (int) $row['effectif'], 'admis' => (int) $row['admis']];
+$stmt->execute([$anneeId, $estFinal ? 1 : 0]);
+$candidats = $stmt->fetchAll();
+
+$notesParCandidat = [];
+$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+$stmtNotes->execute([$examenId]);
+foreach ($stmtNotes->fetchAll() as $n) {
+    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
 }
-$effectifPublic = $parSecteur['Public']['effectif'] ?? 0;
-$admisPublic = $parSecteur['Public']['admis'] ?? 0;
-$effectifPrive = $parSecteur['Privé']['effectif'] ?? 0;
-$admisPrive = $parSecteur['Privé']['admis'] ?? 0;
+
+$parSecteur = ['Public' => ['effectif' => 0, 'admis' => 0], 'Privé' => ['effectif' => 0, 'admis' => 0]];
+foreach ($candidats as $c) {
+    $secteur = $c['statut'] ?? null;
+    if (!isset($parSecteur[$secteur])) continue; // candidat libre sans école -> hors secteur
+
+    $notesCandidat = $notesParCandidat[(int) $c['id']] ?? [];
+    $estAbsent = false;
+    $notesParMatiere = [];
+    foreach ($listeMatieres as $matiere) {
+        $ligneNote = $notesCandidat[$matiere] ?? null;
+        if ($ligneNote && (int) $ligneNote['present'] === 0) {
+            $estAbsent = true;
+        }
+        $notesParMatiere[$matiere] = $ligneNote['note'] ?? null;
+    }
+    if ($estAbsent) continue;
+
+    $moyenne = calculerMoyenne20($notesParMatiere, $examen['code']);
+    if ($moyenne === null) continue; // notes incomplètes, pas encore comptabilisé
+
+    $parSecteur[$secteur]['effectif']++;
+    if ($moyenne >= SEUIL_ADMISSION_CEPE) {
+        $parSecteur[$secteur]['admis']++;
+    }
+}
+
+$effectifPublic = $parSecteur['Public']['effectif'];
+$admisPublic = $parSecteur['Public']['admis'];
+$effectifPrive = $parSecteur['Privé']['effectif'];
+$admisPrive = $parSecteur['Privé']['admis'];
 
 $pct = fn($admis, $effectif) => $effectif > 0 ? round($admis / $effectif * 100, 2) : 0;
 
