@@ -1362,6 +1362,10 @@ include '../views/layouts/header.php';
                     <small class="text-muted d-block mt-1">
                         À lancer après le calcul des salles ci-dessus : affecte chaque candidat, par ordre alphabétique, à sa salle.
                     </small>
+                    <a href="pdf_liste_candidats_salles.php?examen_id=<?= (int) $examenSelectionneId ?>" target="_blank" class="btn btn-outline-secondary btn-sm mt-2">
+                        <i class="bi bi-file-earmark-pdf"></i>
+                        Liste des candidats par salle (PDF, ordre alphabétique)
+                    </a>
                 </form>
             <?php endif; ?>
 

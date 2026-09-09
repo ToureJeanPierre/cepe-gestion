@@ -92,6 +92,30 @@ foreach ($candidats as $c) {
     $groupes[$c['nom_ecole']][] = $c;
 }
 
+// Rang de chaque candidat au sein de son école (moyenne décroissante, ex-aequo
+// départagés par nom) — calculé une seule fois, réutilisé dans les deux modes
+// d'affichage (alphabétique ou mérite). Pas de rang tant que la moyenne n'est
+// pas calculable (notes incomplètes ou absence).
+foreach ($groupes as $nomEcole => &$lignes) {
+    $classement = $lignes;
+    usort($classement, function ($a, $b) {
+        if ($a['_moyenne'] === null && $b['_moyenne'] === null) return strcmp($a['nom'], $b['nom']);
+        if ($a['_moyenne'] === null) return 1;
+        if ($b['_moyenne'] === null) return -1;
+        return $b['_moyenne'] <=> $a['_moyenne'];
+    });
+    $rangCourant = 1;
+    $rangParId = [];
+    foreach ($classement as $c) {
+        $rangParId[$c['id']] = $c['_moyenne'] !== null ? $rangCourant++ : null;
+    }
+    foreach ($lignes as &$c) {
+        $c['_rang'] = $rangParId[$c['id']];
+    }
+    unset($c);
+}
+unset($lignes);
+
 /*
 |--------------------------------------------------------------------------
 | GÉNÉRATION DU HTML
@@ -157,7 +181,7 @@ foreach ($groupes as $nomEcole => $lignes) {
                 $html .= '<p><em>Aucun candidat.</em></p>';
                 continue;
             }
-            $html .= '<table class="doc-table"><thead><tr><th class="gauche">Matricule</th><th class="gauche">Nom</th><th class="gauche">Prénoms</th>' . enTeteColonnesNotes($matieres) . '<th>Total /' . $totalMax . '</th><th>Moyenne /20</th><th>Observation</th></tr></thead><tbody>';
+            $html .= '<table class="doc-table"><thead><tr><th class="gauche">Matricule</th><th class="gauche">Nom</th><th class="gauche">Prénoms</th>' . enTeteColonnesNotes($matieres) . '<th>Total /' . $totalMax . '</th><th>Moyenne /20</th><th>Rang</th><th>Observation</th></tr></thead><tbody>';
             foreach ($section as $c) {
                 $html .= '<tr>'
                     . '<td class="gauche">' . htmlspecialchars($c['matricule_dsps'] ?? '-') . '</td>'
@@ -166,6 +190,7 @@ foreach ($groupes as $nomEcole => $lignes) {
                     . ligneNotes($c, $listeMatieres)
                     . '<td>' . ($c['_total'] !== null ? htmlspecialchars($c['_total']) : '—') . '</td>'
                     . '<td><strong>' . ($c['_moyenne'] !== null ? htmlspecialchars($c['_moyenne']) : '—') . '</strong></td>'
+                    . '<td>' . ($c['_rang'] !== null ? $c['_rang'] : 'n/c') . '</td>'
                     . '<td>' . celluleObservation($c['_observation']) . '</td>'
                     . '</tr>';
             }
@@ -182,17 +207,16 @@ foreach ($groupes as $nomEcole => $lignes) {
             return $b['_moyenne'] <=> $a['_moyenne'];
         });
 
-        $html .= '<table class="doc-table"><thead><tr><th>Rang</th><th class="gauche">Matricule</th><th class="gauche">Nom</th><th class="gauche">Prénoms</th>' . enTeteColonnesNotes($matieres) . '<th>Total /' . $totalMax . '</th><th>Moyenne /20</th><th>Observation</th></tr></thead><tbody>';
-        $rang = 1;
+        $html .= '<table class="doc-table"><thead><tr><th class="gauche">Matricule</th><th class="gauche">Nom</th><th class="gauche">Prénoms</th>' . enTeteColonnesNotes($matieres) . '<th>Total /' . $totalMax . '</th><th>Moyenne /20</th><th>Rang</th><th>Observation</th></tr></thead><tbody>';
         foreach ($lignes as $c) {
             $html .= '<tr>'
-                . '<td>' . ($c['_moyenne'] !== null ? $rang++ : 'n/c') . '</td>'
                 . '<td class="gauche">' . htmlspecialchars($c['matricule_dsps'] ?? '-') . '</td>'
                 . '<td class="gauche">' . htmlspecialchars($c['nom']) . '</td>'
                 . '<td class="gauche">' . htmlspecialchars($c['prenoms']) . '</td>'
                 . ligneNotes($c, $listeMatieres)
                 . '<td>' . ($c['_total'] !== null ? htmlspecialchars($c['_total']) : '—') . '</td>'
                 . '<td><strong>' . ($c['_moyenne'] !== null ? htmlspecialchars($c['_moyenne']) : '—') . '</strong></td>'
+                . '<td>' . ($c['_rang'] !== null ? $c['_rang'] : 'n/c') . '</td>'
                 . '<td>' . celluleObservation($c['_observation']) . '</td>'
                 . '</tr>';
         }

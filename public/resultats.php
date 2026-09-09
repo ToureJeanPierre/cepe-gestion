@@ -348,7 +348,7 @@ include '../views/layouts/header.php';
                         <th>Prénoms</th>
                         <th>Matricule</th>
                         <?php foreach ($matieres as $matiere => $max): ?>
-                            <th style="width:90px"><?= htmlspecialchars($matiere) ?><br><small class="text-muted">/<?= $max ?></small></th>
+                            <th style="width:130px; font-size:11px; line-height:1.3; white-space:normal;"><?= htmlspecialchars($matiere) ?><br><small class="text-muted">/<?= $max ?></small></th>
                         <?php endforeach; ?>
                         <th style="width:80px">Moyenne /20</th>
                         <th class="text-center" style="width:80px">Absent</th>
