@@ -94,7 +94,7 @@ foreach ($lignes as $l) {
         $valeursMatieres[] = $ligneNote['note'] ?? '';
     }
     $moyenne = $estAbsent ? null : calculerMoyenne20($notesParMatiere, $examen['code']);
-    $resultat = $estAbsent ? 'Absent' : ($moyenne === null ? '' : ($moyenne >= SEUIL_ADMISSION_CEPE ? 'Admis' : 'Ajourné'));
+    $resultat = $estAbsent ? 'Absent' : ($moyenne === null ? '' : ($moyenne >= SEUIL_ADMISSION_CEPE ? 'Admis' : 'Refusé'));
 
     $ligne = array_merge(
         [

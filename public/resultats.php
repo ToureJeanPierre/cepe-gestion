@@ -283,7 +283,8 @@ include '../views/layouts/header.php';
     <h2>📊 Résultats & Notes</h2>
     <div>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImportNotes"><i class="bi bi-file-earmark-excel"></i> Importer Excel</button>
-        <a href="liste_saisie_pdf.php?examen_id=<?= $examenId ?><?= $filtreEcole ? '&ecole_id=' . (int) $filtreEcole : '' ?>" class="btn btn-outline-primary me-2" target="_blank"><i class="bi bi-file-earmark-pdf"></i> Listes de saisie (PDF)</a>
+        <a href="pdf_releve_notes.php?examen_id=<?= $examenId ?>&tri=alpha<?= $filtreEcole ? '&ecole_id=' . (int) $filtreEcole : '' ?>" class="btn btn-outline-primary me-2" target="_blank"><i class="bi bi-file-earmark-pdf"></i> Relevé (alphabétique)</a>
+        <a href="pdf_releve_notes.php?examen_id=<?= $examenId ?>&tri=merite<?= $filtreEcole ? '&ecole_id=' . (int) $filtreEcole : '' ?>" class="btn btn-outline-primary me-2" target="_blank"><i class="bi bi-file-earmark-pdf"></i> Relevé (mérite)</a>
         <a href="export_dsps.php?examen_id=<?= $examenId ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Export DSPS</a>
     </div>
 </div>
@@ -393,7 +394,7 @@ include '../views/layouts/header.php';
                                 <?php elseif ($estAdmis): ?>
                                     <span class="badge bg-success">Admis</span>
                                 <?php else: ?>
-                                    <span class="badge bg-danger">Ajourné</span>
+                                    <span class="badge bg-danger">Refusé</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
