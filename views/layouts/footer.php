@@ -79,6 +79,40 @@
 })();
 </script>
 
+<!--
+    Menu mobile : ouvre/ferme la barre latérale en rideau sur petit écran
+    (bouton hamburger dans la topbar, rideau sombre en arrière-plan, fermeture
+    automatique au clic sur un lien ou au retour en largeur "bureau").
+-->
+<script>
+(function () {
+    var sidebar = document.getElementById('sidebarPrincipal');
+    var rideau = document.getElementById('sidebarBackdrop');
+
+    window.ouvrirMenuMobile = function () {
+        sidebar.classList.add('is-open');
+        rideau.classList.add('is-open');
+        document.body.style.overflow = 'hidden';
+    };
+
+    window.fermerMenuMobile = function () {
+        sidebar.classList.remove('is-open');
+        rideau.classList.remove('is-open');
+        document.body.style.overflow = '';
+    };
+
+    sidebar.querySelectorAll('a.nav-link').forEach(function (lien) {
+        lien.addEventListener('click', window.fermerMenuMobile);
+    });
+
+    window.addEventListener('resize', function () {
+        if (window.innerWidth > 767) {
+            window.fermerMenuMobile();
+        }
+    });
+})();
+</script>
+
 </body>
 
 </html>

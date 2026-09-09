@@ -286,12 +286,12 @@ include '../views/layouts/header.php';
 </div>
 
 <!-- Stats -->
-<div class="row mb-4">
-    <div class="col-md-2"><div class="card text-center bg-primary text-white"><div class="card-body"><h6>Total</h6><h3><?= $stats['total'] ?></h3></div></div></div>
-    <div class="col-md-2"><div class="card text-center bg-info text-white"><div class="card-body"><h6>Enseignants</h6><h3><?= $stats['nb_enseignants'] ?></h3></div></div></div>
-    <div class="col-md-2"><div class="card text-center bg-secondary text-white"><div class="card-body"><h6>Conseillers</h6><h3><?= $stats['nb_conseillers'] ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-warning text-dark"><div class="card-body"><h6>Personnel Admin.</h6><h3><?= $stats['nb_administratifs'] ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-success text-white"><div class="card-body"><h6>En activité</h6><h3><?= $stats['nb_actifs'] ?></h3></div></div></div>
+<div class="row g-3 mb-4">
+    <div class="col-md-2"><?php statCard('bi-person-badge', 'navy', (string) $stats['total'], 'Total'); ?></div>
+    <div class="col-md-2"><?php statCard('bi-easel', 'blue', (string) $stats['nb_enseignants'], 'Enseignants'); ?></div>
+    <div class="col-md-2"><?php statCard('bi-person-lines-fill', 'purple', (string) $stats['nb_conseillers'], 'Conseillers'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-briefcase', 'orange', (string) $stats['nb_administratifs'], 'Personnel Admin.'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-check-circle', 'green', (string) $stats['nb_actifs'], 'En activité'); ?></div>
 </div>
 
 <!-- Filtres -->

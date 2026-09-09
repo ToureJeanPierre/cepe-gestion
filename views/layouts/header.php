@@ -19,6 +19,36 @@ $ANNEE_SCOLAIRE = $ANNEE_SCOLAIRE ?? ($anneeSelectionnee['annee_scolaire'] ?? 'N
 
 $retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== '' ? ('?' . $qs) : '');
 
+if (!function_exists('statCard')) {
+    /**
+     * Rend une tuile de statistique cohérente avec l'identité de l'appli
+     * (remplace les blocs Bootstrap bg-primary/bg-info/... pleins).
+     *
+     * @param string      $icone   Classe d'icône Bootstrap Icons (ex: "bi-people")
+     * @param string      $couleur Variante stat-icon-* (navy, orange, green, blue, teal, red, gray, purple)
+     * @param string      $valeur  Valeur mise en avant (déjà formatée)
+     * @param string      $label   Libellé court (affiché en majuscules)
+     * @param string|null $sousTexte Texte secondaire optionnel sous la valeur
+     * @param string|null $lien    Si fourni, toute la tuile devient un lien cliquable
+     */
+    function statCard(string $icone, string $couleur, string $valeur, string $label, ?string $sousTexte = null, ?string $lien = null): void
+    {
+        $balise = $lien ? 'a' : 'div';
+        $attrs = $lien ? ' href="' . htmlspecialchars($lien) . '"' : '';
+        $classeLien = $lien ? ' is-link' : '';
+        ?>
+        <<?= $balise ?> class="stat-card<?= $classeLien ?>"<?= $attrs ?>>
+            <div class="stat-card-icon stat-icon-<?= htmlspecialchars($couleur) ?>"><i class="bi <?= htmlspecialchars($icone) ?>"></i></div>
+            <div class="stat-card-body">
+                <div class="stat-card-value"><?= $valeur ?></div>
+                <div class="stat-card-label"><?= htmlspecialchars($label) ?></div>
+                <?php if ($sousTexte !== null): ?><div class="stat-card-sub"><?= $sousTexte ?></div><?php endif; ?>
+            </div>
+        </<?= $balise ?>>
+        <?php
+    }
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -689,6 +719,191 @@ $retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== ''
 
 
         /* ======================================================
+           CARTES STATISTIQUES (KPI)
+        ====================================================== */
+        /* Remplace les blocs Bootstrap bg-primary/bg-info/... pleins par des
+           tuiles cohérentes avec l'identité (navy/orange/vert), un peu
+           partout dans l'application (tableau de bord, listes...). */
+
+        .stat-card {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 14px;
+
+            height: 100%;
+
+            padding: 16px 18px;
+
+            background: white;
+
+            border: 1px solid var(--border);
+
+            border-radius: 10px;
+
+            box-shadow: var(--shadow);
+
+            transition: var(--transition);
+        }
+
+
+        .stat-card:hover {
+
+            transform: translateY(-1px);
+
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+        }
+
+
+        .stat-card-icon {
+
+            flex-shrink: 0;
+
+            width: 44px;
+            height: 44px;
+
+            border-radius: 10px;
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            font-size: 19px;
+
+            color: white;
+        }
+
+
+        .stat-card-body {
+            min-width: 0;
+        }
+
+
+        .stat-card-value {
+
+            font-size: 22px;
+
+            font-weight: 700;
+
+            color: var(--primary);
+
+            line-height: 1.15;
+        }
+
+
+        .stat-card-label {
+
+            font-size: 11px;
+
+            font-weight: 700;
+
+            color: var(--text-muted);
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.4px;
+
+            margin-top: 2px;
+        }
+
+
+        .stat-card-sub {
+
+            font-size: 11px;
+
+            color: var(--text-muted);
+
+            margin-top: 3px;
+
+            line-height: 1.4;
+        }
+
+
+        .stat-card.is-link {
+            text-decoration: none;
+            display: flex;
+        }
+
+
+        /* ======================================================
+           LIENS DOCUMENT (ex: pages Documents/Résultats)
+        ====================================================== */
+
+        .doc-link {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 10px;
+
+            padding: 10px 12px;
+
+            border-radius: 8px;
+
+            border: 1px solid var(--border);
+
+            background: #fafbfc;
+
+            color: var(--text-dark);
+
+            font-size: 13px;
+
+            font-weight: 500;
+
+            transition: var(--transition);
+        }
+
+
+        .doc-link:hover {
+
+            background: rgba(23, 54, 93, 0.06);
+
+            border-color: var(--primary);
+
+            color: var(--primary);
+        }
+
+
+        .doc-link i.doc-link-icon {
+
+            font-size: 16px;
+
+            color: var(--ci-orange);
+
+            flex-shrink: 0;
+        }
+
+
+        .doc-link.doc-link-excel i.doc-link-icon {
+            color: var(--ci-green);
+        }
+
+
+        .doc-link-chevron {
+
+            margin-left: auto;
+
+            color: var(--text-muted);
+
+            font-size: 12px;
+        }
+
+
+        .stat-icon-navy    { background: var(--primary); }
+        .stat-icon-orange  { background: var(--ci-orange); }
+        .stat-icon-green   { background: var(--ci-green); }
+        .stat-icon-blue    { background: #2f7dd1; }
+        .stat-icon-teal    { background: #0f9b8e; }
+        .stat-icon-red     { background: #d9534f; }
+        .stat-icon-gray    { background: #6c7686; }
+        .stat-icon-purple  { background: #7c5cbf; }
+
+
+        /* ======================================================
            BOUTONS
         ====================================================== */
 
@@ -895,19 +1110,85 @@ $retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== ''
         }
 
 
+        /* ======================================================
+           MENU MOBILE (bouton + rideau)
+        ====================================================== */
+
+        .mobile-menu-btn {
+
+            display: none;
+
+            align-items: center;
+            justify-content: center;
+
+            width: 38px;
+            height: 38px;
+
+            border-radius: 8px;
+
+            border: 1px solid var(--border);
+
+            background: white;
+
+            color: var(--primary);
+
+            font-size: 18px;
+
+            cursor: pointer;
+
+            flex-shrink: 0;
+        }
+
+
+        .sidebar-backdrop {
+
+            display: none;
+
+            position: fixed;
+
+            inset: 0;
+
+            background: rgba(16, 41, 68, 0.45);
+
+            z-index: 1050;
+        }
+
+
+        .sidebar-backdrop.is-open {
+            display: block;
+        }
+
+
         @media (max-width: 767px) {
 
             .sidebar {
 
-                position: relative;
+                position: fixed;
 
-                width: 100%;
+                top: 6px;
+                left: 0;
+                bottom: 0;
 
-                top: 0;
+                width: 280px;
+                max-width: 85%;
 
                 min-height: auto;
 
                 max-height: none;
+
+                transform: translateX(-100%);
+
+                transition: transform 0.25s ease;
+
+                z-index: 1100;
+            }
+
+
+            .sidebar.is-open {
+
+                transform: translateX(0);
+
+                box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
             }
 
 
@@ -942,6 +1223,11 @@ $retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== ''
 
                 flex-wrap: wrap;
             }
+
+
+            .mobile-menu-btn {
+                display: inline-flex;
+            }
         }
 
     </style>
@@ -960,11 +1246,15 @@ $retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== ''
 <div class="app-wrapper">
 
 
+    <!-- Rideau sombre affiché derrière le menu mobile ouvert -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="fermerMenuMobile()"></div>
+
+
     <!-- ======================================================
          SIDEBAR
     ======================================================= -->
 
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebarPrincipal">
 
 
         <div class="sidebar-brand-line"></div>
@@ -1320,18 +1610,32 @@ $retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== ''
         <header class="topbar">
 
 
-            <div>
+            <div class="d-flex align-items-center gap-2">
 
-                <div class="topbar-title">
+                <button
+                    type="button"
+                    class="mobile-menu-btn"
+                    id="boutonMenuMobile"
+                    onclick="ouvrirMenuMobile()"
+                    aria-label="Ouvrir le menu"
+                >
+                    <i class="bi bi-list"></i>
+                </button>
 
-                    Application de gestion du CEPE
+                <div>
 
-                </div>
+                    <div class="topbar-title">
+
+                        Application de gestion du CEPE
+
+                    </div>
 
 
-                <div class="topbar-subtitle">
+                    <div class="topbar-subtitle">
 
-                    IEPP Yopougon-Niangon
+                        IEPP Yopougon-Niangon
+
+                    </div>
 
                 </div>
 

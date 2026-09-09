@@ -282,21 +282,22 @@ include '../views/layouts/header.php';
 <?php endif; ?>
 
 <!-- Stats Cards -->
-<div class="row mb-4">
-    <div class="col-md-2"><div class="card text-center bg-primary text-white"><div class="card-body"><h6>Total Élèves</h6><h3><?= $statsGlobal['total'] ?></h3></div></div></div>
-    <div class="col-md-2"><div class="card text-center bg-info text-white"><div class="card-body"><h6>Filles</h6><h3><?= $statsGlobal['filles'] ?></h3></div></div></div>
-    <div class="col-md-2"><div class="card text-center bg-secondary text-white"><div class="card-body"><h6>Garçons</h6><h3><?= $statsGlobal['garcons'] ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-success text-white"><div class="card-body"><h6>Immatriculés</h6><h3><?= $statsGlobal['immatricules'] ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-danger text-white"><div class="card-body"><h6>Non Immatriculés</h6><h3><?= $statsGlobal['non_immatricules'] ?></h3></div></div></div>
+<div class="row g-3 mb-4">
+    <div class="col-md-2"><?php statCard('bi-people', 'navy', (string) $statsGlobal['total'], 'Total Élèves'); ?></div>
+    <div class="col-md-2"><?php statCard('bi-gender-female', 'purple', (string) $statsGlobal['filles'], 'Filles'); ?></div>
+    <div class="col-md-2"><?php statCard('bi-gender-male', 'blue', (string) $statsGlobal['garcons'], 'Garçons'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-check-circle', 'green', (string) $statsGlobal['immatricules'], 'Immatriculés'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-exclamation-triangle', 'red', (string) $statsGlobal['non_immatricules'], 'Non Immatriculés'); ?></div>
 </div>
 
-<div class="row mb-4">
+<div class="row g-3 mb-4">
     <div class="col-md-4">
-        <div class="card text-center bg-success text-white h-100">
-            <div class="card-body">
-                <h6>✅ Candidats Validés</h6>
-                <h3 id="compteur-valides"><span id="nb-valides"><?= $statsGlobal['candidats_valides'] ?></span> / <?= $statsGlobal['total'] ?></h3>
-                <small>Matricule vérifié + Droits payés</small>
+        <div class="stat-card h-100">
+            <div class="stat-card-icon stat-icon-green"><i class="bi bi-patch-check"></i></div>
+            <div class="stat-card-body">
+                <div class="stat-card-value" id="compteur-valides"><span id="nb-valides"><?= $statsGlobal['candidats_valides'] ?></span> / <?= $statsGlobal['total'] ?></div>
+                <div class="stat-card-label">Candidats Validés</div>
+                <div class="stat-card-sub">Matricule vérifié + Droits payés</div>
             </div>
         </div>
     </div>

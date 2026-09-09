@@ -83,10 +83,13 @@ if (isset($_GET['modifier'])) {
 include '../views/layouts/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2>🎓 CAP / CEAP — Candidats aux concours enseignants</h2>
+<div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-4">
     <div>
-        <a href="pdf_bordereau_recapitulatif_cap_ceap.php" target="_blank" class="btn btn-outline-success me-2"><i class="bi bi-file-earmark-pdf"></i> Bordereau récapitulatif</a>
+        <h2 class="mb-0">🎓 CAP / CEAP</h2>
+        <p class="text-muted mb-0 small">Candidats aux concours enseignants</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="pdf_bordereau_recapitulatif_cap_ceap.php" target="_blank" class="btn btn-outline-success"><i class="bi bi-file-earmark-pdf"></i> Bordereau récapitulatif</a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter</button>
     </div>
 </div>

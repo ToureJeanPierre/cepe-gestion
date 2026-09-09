@@ -285,11 +285,11 @@ include '../views/layouts/header.php';
 <?php endif; ?>
 
 <!-- Stats -->
-<div class="row mb-4">
-    <div class="col-md-3"><div class="card text-center bg-primary text-white"><div class="card-body"><h6>Total</h6><h3><?= $total ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-info text-white"><div class="card-body"><h6>Notes saisies</h6><h3><?= $presents ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-success text-white"><div class="card-body"><h6>Admis (≥ <?= SEUIL_ADMISSION ?>/20)</h6><h3><?= $admis ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-warning text-dark"><div class="card-body"><h6>Taux de réussite</h6><h3><?= $tauxReussite ?>%</h3></div></div></div>
+<div class="row g-3 mb-4">
+    <div class="col-md-3"><?php statCard('bi-people', 'navy', (string) $total, 'Total'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-pencil-square', 'blue', (string) $presents, 'Notes saisies'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-patch-check', 'green', (string) $admis, 'Admis (≥ ' . SEUIL_ADMISSION . '/20)'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-graph-up', 'orange', $tauxReussite . '%', 'Taux de réussite'); ?></div>
 </div>
 
 <form method="POST">

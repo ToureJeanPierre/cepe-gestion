@@ -206,12 +206,12 @@ include '../views/layouts/header.php';
 </div>
 
 <!-- Stats -->
-<div class="row mb-4">
-    <div class="col-md-2"><div class="card text-center bg-primary text-white"><div class="card-body"><h6>Total</h6><h3><?= $stats['total'] ?></h3></div></div></div>
-    <div class="col-md-2"><div class="card text-center bg-info text-white"><div class="card-body"><h6>Publics</h6><h3><?= $stats['publics'] ?></h3></div></div></div>
-    <div class="col-md-2"><div class="card text-center bg-warning text-dark"><div class="card-body"><h6>Privés</h6><h3><?= $stats['prives'] ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-danger text-white"><div class="card-body"><h6>Sans Code DSPS</h6><h3><?= $stats['sans_code'] ?></h3></div></div></div>
-    <div class="col-md-3"><div class="card text-center bg-success text-white"><div class="card-body"><h6>Centres Examen</h6><h3><?= $stats['centres'] ?></h3></div></div></div>
+<div class="row g-3 mb-4">
+    <div class="col-md-2"><?php statCard('bi-building', 'navy', (string) $stats['total'], 'Total'); ?></div>
+    <div class="col-md-2"><?php statCard('bi-bank', 'blue', (string) $stats['publics'], 'Publics'); ?></div>
+    <div class="col-md-2"><?php statCard('bi-mortarboard', 'purple', (string) $stats['prives'], 'Privés'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-exclamation-triangle', 'red', (string) $stats['sans_code'], 'Sans Code DSPS'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-geo-alt', 'green', (string) $stats['centres'], 'Centres Examen'); ?></div>
 </div>
 
 <!-- Filtres -->

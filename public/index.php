@@ -138,48 +138,32 @@ include '../views/layouts/header.php';
 
         <div class="row g-3">
             <div class="col-md-3">
-                <a href="ecoles.php" class="text-decoration-none">
-                    <div class="card text-center bg-primary text-white h-100">
-                        <div class="card-body">
-                            <h5>🏫 Écoles</h5>
-                            <h2><?= $totalEcoles ?></h2>
-                            <small><?= $ecolesParStatut['Public'] ?> Public · <?= $ecolesParStatut['Privé'] ?> Privé<br><?= $nbEcolesAutonomes ?> Autonomes · <?= $nbEcolesRattachees ?> Tutrices/Rattachées</small>
-                        </div>
-                    </div>
-                </a>
+                <?php statCard(
+                    'bi-building', 'navy', (string) $totalEcoles, 'Écoles',
+                    $ecolesParStatut['Public'] . ' Public · ' . $ecolesParStatut['Privé'] . ' Privé<br>' . $nbEcolesAutonomes . ' Autonomes · ' . $nbEcolesRattachees . ' Tutrices/Rattachées',
+                    'ecoles.php'
+                ); ?>
             </div>
             <div class="col-md-3">
-                <a href="enseignants.php" class="text-decoration-none">
-                    <div class="card text-center bg-success text-white h-100">
-                        <div class="card-body">
-                            <h5>👨‍🏫 Enseignants</h5>
-                            <h2><?= $totalEnseignants ?></h2>
-                            <small><?= $enseignantsParFonction['Directeur'] ?? 0 ?> Directeurs · <?= $enseignantsParFonction['Adjoint'] ?? 0 ?> Adjoints</small>
-                        </div>
-                    </div>
-                </a>
+                <?php statCard(
+                    'bi-person-badge', 'green', (string) $totalEnseignants, 'Enseignants',
+                    ($enseignantsParFonction['Directeur'] ?? 0) . ' Directeurs · ' . ($enseignantsParFonction['Adjoint'] ?? 0) . ' Adjoints',
+                    'enseignants.php'
+                ); ?>
             </div>
             <div class="col-md-3">
-                <a href="candidats.php" class="text-decoration-none">
-                    <div class="card text-center bg-warning text-white h-100">
-                        <div class="card-body">
-                            <h5>👥 Candidats</h5>
-                            <h2><?= $totalCandidats ?></h2>
-                            <small><?= $nbCandidatsOfficiels ?> Officiels · <?= $nbCandidatsLibres ?> Libres</small>
-                        </div>
-                    </div>
-                </a>
+                <?php statCard(
+                    'bi-people', 'orange', (string) $totalCandidats, 'Candidats',
+                    $nbCandidatsOfficiels . ' Officiels · ' . $nbCandidatsLibres . ' Libres',
+                    'candidats.php'
+                ); ?>
             </div>
             <div class="col-md-3">
-                <a href="centres.php" class="text-decoration-none">
-                    <div class="card text-center bg-info text-white h-100">
-                        <div class="card-body">
-                            <h5>📍 Centres</h5>
-                            <h2><?= $totalCentres ?></h2>
-                            <small>Année <?= htmlspecialchars($ANNEE_SCOLAIRE) ?></small>
-                        </div>
-                    </div>
-                </a>
+                <?php statCard(
+                    'bi-geo-alt', 'blue', (string) $totalCentres, 'Centres',
+                    'Année ' . htmlspecialchars($ANNEE_SCOLAIRE),
+                    'centres.php'
+                ); ?>
             </div>
         </div>
 
@@ -211,7 +195,7 @@ include '../views/layouts/header.php';
                         <h6 class="card-title">🎯 Affectation des surveillants par centre</h6>
                         <?php if ($tauxAffectationSurveillants !== null): ?>
                             <div class="progress mb-2" style="height: 22px;">
-                                <div class="progress-bar bg-info" style="width: <?= $tauxAffectationSurveillants ?>%">
+                                <div class="progress-bar" style="width: <?= $tauxAffectationSurveillants ?>%; background-color: var(--ci-orange);">
                                     <?= $tauxAffectationSurveillants ?>%
                                 </div>
                             </div>

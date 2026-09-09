@@ -86,8 +86,8 @@ include '../views/layouts/header.php';
         <div class="card shadow-sm h-100">
             <div class="card-header">📚 Référentiels</div>
             <div class="card-body d-flex flex-column gap-2">
-                <a href="pdf_ecoles.php" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Répertoire des écoles (PDF)</a>
-                <a href="pdf_annuaire_personnel.php" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Annuaire du personnel (PDF)</a>
+                <a href="pdf_ecoles.php" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Répertoire des écoles (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="pdf_annuaire_personnel.php" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Annuaire du personnel (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
             </div>
         </div>
     </div>
@@ -95,14 +95,14 @@ include '../views/layouts/header.php';
         <div class="card shadow-sm h-100">
             <div class="card-header">🏛️ Examens & Logistique — <?= htmlspecialchars($examens[array_search($examenId, array_column($examens, 'id'))]['libelle'] ?? '') ?></div>
             <div class="card-body d-flex flex-column gap-2">
-                <a href="pdf_annexe_repartition.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Annexe — Répartition des candidats par centre (PDF)</a>
-                <a href="pdf_plans_salle.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Plans de salle par centre (PDF)</a>
-                <a href="pdf_emargement.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Listes d'émargement par salle (PDF)</a>
-                <a href="pdf_liste_acteurs.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Liste des acteurs du centre (PDF)</a>
-                <a href="pdf_mission_supervision.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Missions de supervision (PDF)</a>
-                <a href="liste_saisie_pdf.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Listes de saisie des notes (PDF)</a>
-                <a href="pdf_statistiques_examen.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Statistiques de l'examen (PDF)</a>
-                <a href="export_dsps.php?examen_id=<?= $examenId ?>" class="btn btn-outline-success text-start"><i class="bi bi-file-earmark-excel"></i> Export résultats DSPS (Excel)</a>
+                <a href="pdf_annexe_repartition.php?examen_id=<?= $examenId ?>" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Annexe — Répartition des candidats par centre (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="pdf_plans_salle.php?examen_id=<?= $examenId ?>" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Plans de salle par centre (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="pdf_emargement.php?examen_id=<?= $examenId ?>" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Listes d'émargement par salle (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="pdf_liste_acteurs.php?examen_id=<?= $examenId ?>" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Liste des acteurs du centre (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="pdf_mission_supervision.php?examen_id=<?= $examenId ?>" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Missions de supervision (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="liste_saisie_pdf.php?examen_id=<?= $examenId ?>" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Listes de saisie des notes (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="pdf_statistiques_examen.php?examen_id=<?= $examenId ?>" target="_blank" class="doc-link"><i class="bi bi-file-earmark-pdf doc-link-icon"></i> Statistiques de l'examen (PDF)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
+                <a href="export_dsps.php?examen_id=<?= $examenId ?>" class="doc-link doc-link-excel"><i class="bi bi-file-earmark-excel doc-link-icon"></i> Export résultats DSPS (Excel)<i class="bi bi-chevron-right doc-link-chevron"></i></a>
             </div>
         </div>
     </div>
