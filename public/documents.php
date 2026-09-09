@@ -95,11 +95,33 @@ include '../views/layouts/header.php';
         <div class="card shadow-sm h-100">
             <div class="card-header">🏛️ Examens & Logistique — <?= htmlspecialchars($examens[array_search($examenId, array_column($examens, 'id'))]['libelle'] ?? '') ?></div>
             <div class="card-body d-flex flex-column gap-2">
+                <a href="pdf_annexe_repartition.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Annexe — Répartition des candidats par centre (PDF)</a>
                 <a href="pdf_plans_salle.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Plans de salle par centre (PDF)</a>
                 <a href="pdf_emargement.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Listes d'émargement par salle (PDF)</a>
-                <a href="pdf_convocations.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Convocations des surveillants (PDF)</a>
+                <a href="pdf_liste_acteurs.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Liste des acteurs du centre (PDF)</a>
+                <a href="pdf_mission_supervision.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Missions de supervision (PDF)</a>
                 <a href="liste_saisie_pdf.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Listes de saisie des notes (PDF)</a>
+                <a href="pdf_statistiques_examen.php?examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary text-start"><i class="bi bi-file-earmark-pdf"></i> Statistiques de l'examen (PDF)</a>
                 <a href="export_dsps.php?examen_id=<?= $examenId ?>" class="btn btn-outline-success text-start"><i class="bi bi-file-earmark-excel"></i> Export résultats DSPS (Excel)</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header">✉️ Convocations individuelles (modèle national DECO) — <?= htmlspecialchars($examens[array_search($examenId, array_column($examens, 'id'))]['libelle'] ?? '') ?></div>
+            <div class="card-body">
+                <p class="small text-muted">Les convocations Surveillant / Chef de centre / Secrétariat de composition sont pré-remplies à partir des affectations enregistrées. Correcteur / Harmonisateur / Secrétariat de correction ne sont pas encore rattachés à une donnée dans l'appli (pas de module Correction) : le formulaire est généré vierge, à dupliquer et compléter à la main comme aujourd'hui.</p>
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="pdf_convocation.php?type=surveillant&examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Surveillant</a>
+                    <a href="pdf_convocation.php?type=chef_centre&examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Chef de centre</a>
+                    <a href="pdf_convocation.php?type=secretariat_composition&examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-primary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Secrétariat de composition</a>
+                    <a href="pdf_convocation.php?type=correcteur&examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Correcteur (vierge)</a>
+                    <a href="pdf_convocation.php?type=harmonisateur&examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Harmonisateur (vierge)</a>
+                    <a href="pdf_convocation.php?type=secretariat_correction&examen_id=<?= $examenId ?>" target="_blank" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Secrétariat de correction (vierge)</a>
+                </div>
             </div>
         </div>
     </div>

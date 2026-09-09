@@ -195,10 +195,14 @@ function vivierParCategorie(PDO $pdo, array $categories, array $exclureIds): arr
     return array_values(array_filter($stmt->fetchAll(), fn ($p) => !in_array((int) $p['id'], $exclureIds, true)));
 }
 
-$dejaVerrouilles = array_keys($rolesUniques);
+// Verrouillage global : uniquement les rôles à présence physique unique. Le
+// rôle Superviseur ne verrouille PAS globalement — un superviseur peut couvrir
+// plusieurs centres sur le même examen (cf. AffectationEngine::enregistrerAffectation).
+$dejaVerrouilles = array_keys(array_filter($rolesUniques, fn ($role) => $role !== 'Superviseur'));
+
 $vivierPresidentChef = vivierParCategorie($pdo, ['enseignant', 'administratif'], $dejaVerrouilles);
 $vivierSecretariat    = vivierParCategorie($pdo, ['enseignant', 'administratif', 'conseiller'], $dejaVerrouilles);
-$vivierSuperviseurs   = vivierParCategorie($pdo, ['conseiller'], $dejaVerrouilles);
+$vivierSuperviseursBase = vivierParCategorie($pdo, ['conseiller'], $dejaVerrouilles);
 $vivierSurveillants   = $engine->viveirEnseignantsDisponibles($typeExamenLibelle);
 
 $nomsEcoles = [];
@@ -312,6 +316,14 @@ include '../views/layouts/header.php';
         }
         $quota = $c['quota_surveillants'];
         $compteSurveillance = count($surveillants) + count($suppleants);
+
+        // Un superviseur déjà affecté à CE centre ne doit pas réapparaître dans le
+        // select (mais reste sélectionnable pour les AUTRES centres, cf. plus haut).
+        $superviseursIdsCentre = array_column($superviseurs, 'personnel_id');
+        $vivierSuperviseurs = array_values(array_filter(
+            $vivierSuperviseursBase,
+            fn ($p) => !in_array((int) $p['id'], $superviseursIdsCentre, true)
+        ));
     ?>
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">

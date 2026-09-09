@@ -2,6 +2,7 @@
 
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/pdf_letterhead.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -60,21 +61,16 @@ foreach ($candidats as $c) {
 | GÉNÉRATION DU HTML (Section A : avec matricule / Section B : sans matricule)
 |--------------------------------------------------------------------------
 */
-$html = '<html><head><meta charset="UTF-8"><style>
-    body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #263238; }
-    h1 { font-size: 16px; color: #17365d; margin-bottom: 2px; }
-    h2 { font-size: 13px; color: #17365d; margin-top: 20px; border-bottom: 1px solid #17365d; padding-bottom: 3px; }
+$html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '
+    h2 { font-size: 12px; color: #17365d; margin-top: 20px; border-bottom: 1px solid #17365d; padding-bottom: 3px; }
     h3 { font-size: 11px; color: #495057; margin-top: 10px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 5px; }
-    th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
-    th { background: #f0f2f5; }
     .col-note { width: 60px; text-align: center; }
     .page-break { page-break-before: always; }
-    .subtitle { color: #6c757d; margin-bottom: 15px; }
 </style></head><body>';
 
-$html .= '<h1>IEPP Yopougon-Niangon — Liste de saisie des notes</h1>';
-$html .= '<div class="subtitle">' . htmlspecialchars($examen['libelle']) . '</div>';
+$html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
+$html .= titreDocumentIepp('CEPE SESSION ' . date('Y'), 'LISTE DE SAISIE DES NOTES');
+$html .= '<div style="text-align:center; margin-bottom:8px;">' . htmlspecialchars($examen['libelle']) . '</div>';
 
 $premiere = true;
 foreach ($groupes as $nomEcole => $lignes) {

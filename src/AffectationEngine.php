@@ -238,8 +238,17 @@ class AffectationEngine
 
     /**
      * Enregistre une affectation (rôle manuel ou automatique). Retourne
-     * true si l'insertion a réussi, false si l'acteur a déjà un rôle sur
-     * cet examen (contrainte unique_affectation_enseignant).
+     * true si l'insertion a réussi, false si l'acteur ne peut pas être
+     * affecté (déjà un rôle sur cet examen).
+     *
+     * Non-redondance : tous les rôles à présence physique unique (Président,
+     * Chef Secrétariat, Membre Secrétariat, Surveillant, Suppléant) limitent
+     * la personne à UN SEUL centre par examen. Le rôle Superviseur fait
+     * exception : un superviseur couvre en pratique plusieurs centres de sa
+     * zone sur un même examen (confirmé par le document réel "Mission de
+     * Supervision"), donc plusieurs lignes lui sont autorisées — la
+     * contrainte unique en base (annee_id, type_examen, enseignant_id,
+     * centre_id) empêche seulement un doublon exact sur le même centre.
      */
     public function enregistrerAffectation(
         string $typeExamenLibelle,
@@ -249,6 +258,17 @@ class AffectationEngine
         bool $estManuel,
         ?int $planSalleId = null
     ): bool {
+        if ($role !== 'Superviseur') {
+            $stmt = $this->pdo->prepare("
+                SELECT COUNT(*) FROM affectations
+                WHERE annee_id = ? AND type_examen = ? AND enseignant_id = ?
+            ");
+            $stmt->execute([$this->anneeId, $typeExamenLibelle, $enseignantId]);
+            if ((int) $stmt->fetchColumn() > 0) {
+                return false;
+            }
+        }
+
         try {
             $stmt = $this->pdo->prepare("
                 INSERT INTO affectations
@@ -268,7 +288,7 @@ class AffectationEngine
 
             return true;
         } catch (\PDOException $e) {
-            // Code 23000 = violation de contrainte unique (déjà affecté).
+            // Code 23000 = violation de contrainte unique (déjà affecté sur ce centre).
             return false;
         }
     }

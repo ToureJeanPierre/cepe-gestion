@@ -1206,6 +1206,24 @@ $retourSelecteur = $currentPage . (($qs = $_SERVER['QUERY_STRING'] ?? '') !== ''
 
             </li>
 
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'cap_ceap.php' ? 'active' : '' ?>"
+                    href="cap_ceap.php"
+                >
+
+                    <i class="bi bi-award"></i>
+
+                    <span>
+                        CAP / CEAP
+                    </span>
+
+                </a>
+
+            </li>
+
         </ul>
 
 

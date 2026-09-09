@@ -2,6 +2,7 @@
 
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/pdf_letterhead.php';
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
@@ -31,21 +32,16 @@ $stmt = $pdo->prepare("
 $stmt->execute([$examenId, $examenId, $anneeId]);
 $centres = $stmt->fetchAll();
 
-$html = '<html><head><meta charset="UTF-8"><style>
-    body { font-family: DejaVu Sans, sans-serif; font-size: 10px; color: #263238; }
-    h1 { font-size: 16px; color: #17365d; margin-bottom: 2px; }
-    h2 { font-size: 13px; color: #17365d; margin-top: 0; border-bottom: 1px solid #17365d; padding-bottom: 3px; }
+$html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '
+    h2 { font-size: 12px; color: #17365d; margin: 14px 0 2px; border-bottom: 1px solid #17365d; padding-bottom: 3px; }
     h3 { font-size: 11px; color: #495057; margin-top: 10px; }
-    .subtitle { color: #6c757d; margin-bottom: 15px; }
-    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-    th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; }
-    th { background: #f0f2f5; }
     .col-sign { width: 90px; }
     .page-break { page-break-before: always; }
 </style></head><body>';
 
-$html .= '<h1>IEPP Yopougon-Niangon — Listes d&#39;émargement</h1>';
-$html .= '<div class="subtitle">' . htmlspecialchars($examen['libelle']) . '</div>';
+$html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
+$html .= titreDocumentIepp('CEPE SESSION ' . date('Y'), "LISTE D'EMARGEMENT");
+$html .= '<div style="text-align:center; margin-bottom:8px;">' . htmlspecialchars($examen['libelle']) . '</div>';
 
 if (!$centres) {
     $html .= '<p>Aucune liste d\'émargement disponible. Générez d\'abord le plan de salle puis la liste d\'émargement depuis le module Plans de salle.</p>';
@@ -92,6 +88,7 @@ foreach ($centres as $centre) {
     }
 }
 
+$html .= signatureIepp();
 $html .= '</body></html>';
 
 $options = new Options();
