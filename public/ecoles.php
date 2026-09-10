@@ -267,7 +267,7 @@ include '../views/layouts/header.php';
                             <th>Rattachement</th>
                             <th>Directeur</th>
                             <th>Centre?</th>
-                            <th>Actions</th>
+                            <th style="width:60px" class="text-end">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -288,11 +288,19 @@ include '../views/layouts/header.php';
                             </td>
                             <td><?= htmlspecialchars($e['directeur_nom']) ?><br><small class="text-muted"><?= htmlspecialchars($e['directeur_telephone']) ?></small></td>
                             <td class="text-center"><?= $e['est_centre_examen'] ? '✅' : '-' ?></td>
-                            <td>
-                                <a href="candidats.php?ecole_id=<?= $e['id'] ?>" class="btn btn-sm btn-outline-success" title="Candidats de cette école"><i class="bi bi-people"></i></a>
-                                <a href="enseignants.php?ecole_id=<?= $e['id'] ?>" class="btn btn-sm btn-outline-info" title="Personnel de cette école"><i class="bi bi-person-badge"></i></a>
-                                <a href="?modifier=<?= $e['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
-                                <a href="?supprimer=<?= $e['id'] ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Supprimer ?')"><i class="bi bi-trash"></i></a>
+                            <td class="text-end">
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="bi bi-three-dots-vertical"></i>
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        <li><a class="dropdown-item" href="candidats.php?ecole_id=<?= $e['id'] ?>"><i class="bi bi-people me-2"></i>Candidats</a></li>
+                                        <li><a class="dropdown-item" href="enseignants.php?ecole_id=<?= $e['id'] ?>"><i class="bi bi-person-badge me-2"></i>Personnel</a></li>
+                                        <li><a class="dropdown-item" href="?modifier=<?= $e['id'] ?>"><i class="bi bi-pencil me-2"></i>Modifier</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-danger" href="?supprimer=<?= $e['id'] ?>" onclick="return confirm('Supprimer ?')"><i class="bi bi-trash me-2"></i>Supprimer</a></li>
+                                    </ul>
+                                </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>

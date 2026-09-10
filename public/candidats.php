@@ -84,9 +84,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                             // Uniformisation : le nom transmis via l'import (repris tel quel de la
                             // plateforme DSPS) devient le nom de référence de l'école dans l'appli,
                             // dès lors que l'école a été retrouvée de façon fiable par son code DSPS.
+                            // Garde-fou : jamais si une AUTRE école porte déjà exactement ce nom
+                            // (cas des écoles rattachées/tutrices qui partagent des noms proches,
+                            // ex. Cité SODEFOR — un renommage aveugle créerait un doublon ambigu).
                             if ($resE && !empty($nomEcole) && strcasecmp(trim($resE['nom']), $nomEcole) !== 0) {
-                                $pdo->prepare("UPDATE ecoles SET nom = ? WHERE id = ?")->execute([$nomEcole, $resE['id']]);
-                                $nbEcolesRenommees++;
+                                $stmtCollision = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND id != ? LIMIT 1");
+                                $stmtCollision->execute([$nomEcole, $resE['id']]);
+                                if ($stmtCollision->fetch()) {
+                                    $erreurs[] = "Ligne $numLigne : le nom '$nomEcole' (code DSPS '$codeDspsEcole') est déjà utilisé par une autre école — renommage ignoré pour éviter un doublon. École actuelle conservée : '{$resE['nom']}'.";
+                                } else {
+                                    $pdo->prepare("UPDATE ecoles SET nom = ? WHERE id = ?")->execute([$nomEcole, $resE['id']]);
+                                    $nbEcolesRenommees++;
+                                }
                             }
                         }
                         if (!$resE && !empty($nomEcole)) {
