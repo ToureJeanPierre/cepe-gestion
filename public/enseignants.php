@@ -17,8 +17,25 @@ const DISPONIBILITES = ['En activité', 'Congé maternité', 'Congé maladie', '
 // TRAITEMENT : IMPORTATION EXCEL
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])) {
-    if (isset($_FILES['fichier_personnel']) && $_FILES['fichier_personnel']['error'] === 0) {
+    // La catégorie et l'école ne sont plus des colonnes du fichier : elles sont
+    // choisies UNE FOIS pour tout le fichier, car en pratique chaque source de
+    // données arrive déjà séparée (liste des enseignants d'UNE école transmise
+    // par son directeur, ou liste des conseillers transmise par la RH).
+    $typeImport = $_POST['type_import'] ?? 'enseignant_ecole'; // enseignant_ecole | conseiller | administratif
+    $ecoleIdImport = !empty($_POST['ecole_id_import']) ? (int) $_POST['ecole_id_import'] : null;
+    $categorieImport = $typeImport === 'conseiller' ? 'conseiller' : ($typeImport === 'administratif' ? 'administratif' : 'enseignant');
+
+    if ($categorieImport === 'enseignant' && !$ecoleIdImport) {
+        $error = "Veuillez choisir l'école concernée par ce fichier d'enseignants.";
+    } elseif (isset($_FILES['fichier_personnel']) && $_FILES['fichier_personnel']['error'] === 0) {
         try {
+            $typeEcoleImport = 'Public';
+            if ($ecoleIdImport) {
+                $stmtTypeEcole = $pdo->prepare("SELECT statut FROM ecoles WHERE id = ?");
+                $stmtTypeEcole->execute([$ecoleIdImport]);
+                $typeEcoleImport = $stmtTypeEcole->fetchColumn() ?: 'Public';
+            }
+
             $spreadsheet = IOFactory::load($_FILES['fichier_personnel']['tmp_name']);
             $rows = $spreadsheet->getActiveSheet()->toArray();
             array_shift($rows); // Saute l'en-tête
@@ -27,11 +44,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
             $nbMajs = 0;
             $erreurs = [];
 
-            // Colonnes attendues :
-            // A:Nom B:Prénoms C:Sexe D:Téléphone E:Catégorie F:Sous-type
-            // G:NomÉcole(vide=Inspection) H:TypeÉcole I:Matricule
-            // J:N°AutoEnseigner K:N°AutoDiriger L:NiveauTenu M:Emploi N:Grade
-            // O:Fonction P:Disponibilité Q:PlusHautDiplôme R:PlusHautNiveauÉtude
+            // Colonnes attendues (catégorie et école fixées pour tout le fichier, cf. ci-dessus) :
+            // A:Nom B:Prénoms C:Sexe D:Téléphone E:Sous-type F:Matricule
+            // G:N°AutoEnseigner H:N°AutoDiriger I:NiveauTenu J:Emploi K:Grade
+            // L:Fonction M:Disponibilité N:PlusHautDiplôme O:PlusHautNiveauÉtude
             foreach ($rows as $index => $row) {
                 $numLigne = $index + 2;
                 try {
@@ -40,42 +56,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                     $prenoms = trim($row[1] ?? '');
                     $sexe = strtoupper(trim($row[2] ?? 'M')) === 'F' ? 'F' : 'M';
                     $telephone = trim($row[3] ?? '');
+                    $sousType = trim($row[4] ?? '') ?: null;
+                    $matricule = trim($row[5] ?? '') ?: null;
+                    $numAutoEnseigner = trim($row[6] ?? '') ?: null;
+                    $numAutoDiriger = trim($row[7] ?? '') ?: null;
 
-                    $categorieRaw = strtolower(trim($row[4] ?? 'enseignant'));
-                    $categorie = array_key_exists($categorieRaw, CATEGORIES_PERSONNEL) ? $categorieRaw : 'enseignant';
+                    $niveauVal = in_array(trim($row[8] ?? ''), NIVEAUX) ? trim($row[8]) : null;
+                    $emploiVal = in_array(strtoupper(trim($row[9] ?? '')), ['IO', 'IA']) ? strtoupper(trim($row[9])) : null;
+                    $gradeVal = trim($row[10] ?? '') ?: null;
 
-                    $sousType = trim($row[5] ?? '') ?: null;
+                    $fonctionRaw = trim($row[11] ?? '');
+                    $fonction = !empty($fonctionRaw) ? $fonctionRaw : ($categorieImport === 'enseignant' ? 'Adjoint' : ($categorieImport === 'conseiller' ? 'Conseiller' : 'Agent Administratif'));
 
-                    $nomEcole = trim($row[6] ?? '');
-                    $ecoleId = null;
-                    if (!empty($nomEcole)) {
-                        $stmtEcole = $pdo->prepare("SELECT id, statut FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
-                        $stmtEcole->execute([$nomEcole]);
-                        $ecole = $stmtEcole->fetch();
-                        if ($ecole) {
-                            $ecoleId = (int) $ecole['id'];
-                        } else {
-                            $erreurs[] = "Ligne $numLigne : École '$nomEcole' introuvable (personnel enregistré sans école).";
-                        }
-                    }
-
-                    $typeEcole = (strtolower(trim($row[7] ?? '')) === 'privé' || strtolower(trim($row[7] ?? '')) === 'prive') ? 'Privé' : 'Public';
-                    $matricule = trim($row[8] ?? '') ?: null;
-                    $numAutoEnseigner = trim($row[9] ?? '') ?: null;
-                    $numAutoDiriger = trim($row[10] ?? '') ?: null;
-
-                    $niveauVal = in_array(trim($row[11] ?? ''), NIVEAUX) ? trim($row[11]) : null;
-                    $emploiVal = in_array(strtoupper(trim($row[12] ?? '')), ['IO', 'IA']) ? strtoupper(trim($row[12])) : null;
-                    $gradeVal = trim($row[13] ?? '') ?: null;
-
-                    $fonctionRaw = trim($row[14] ?? '');
-                    $fonction = !empty($fonctionRaw) ? $fonctionRaw : ($categorie === 'enseignant' ? 'Adjoint' : ($categorie === 'conseiller' ? 'Conseiller' : 'Agent Administratif'));
-
-                    $dispRaw = trim($row[15] ?? '');
+                    $dispRaw = trim($row[12] ?? '');
                     $disponibilite = in_array($dispRaw, DISPONIBILITES) ? $dispRaw : 'En activité';
 
-                    $diplome = trim($row[16] ?? '') ?: null;
-                    $niveauEtude = trim($row[17] ?? '') ?: null;
+                    $diplome = trim($row[13] ?? '') ?: null;
+                    $niveauEtude = trim($row[14] ?? '') ?: null;
+
+                    $ecoleId = $categorieImport === 'enseignant' ? $ecoleIdImport : null;
+                    $typeEcole = $categorieImport === 'enseignant' ? $typeEcoleImport : 'Public';
 
                     // Vérification Doublon : par Matricule (Public) ou N° d'autorisation (Privé) si
                     // disponible — clés les plus fiables — sinon par Nom + Prénoms + École.
@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                             WHERE id=?
                         ");
                         $upd->execute([
-                            $ecoleId, $categorie, $sousType, $sexe, $telephone, $typeEcole, $matricule,
+                            $ecoleId, $categorieImport, $sousType, $sexe, $telephone, $typeEcole, $matricule,
                             $numAutoEnseigner, $numAutoDiriger, $niveauVal, $emploiVal, $gradeVal, $fonction, $disponibilite,
                             $diplome, $niveauEtude, $existing['id'],
                         ]);
@@ -115,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ");
                         $stmt->execute([
-                            $anneeActive['id'] ?? $anneeId, $ecoleId, $categorie, $sousType, $nom, $prenoms, $sexe, $telephone, $typeEcole, $matricule,
+                            $anneeActive['id'] ?? $anneeId, $ecoleId, $categorieImport, $sousType, $nom, $prenoms, $sexe, $telephone, $typeEcole, $matricule,
                             $numAutoEnseigner, $numAutoDiriger, $niveauVal, $emploiVal, $gradeVal, $fonction, $disponibilite,
                             $diplome, $niveauEtude,
                         ]);
@@ -126,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                 }
             }
 
-            $msg = "Import terminé : $nbAjouts ajouté(s), $nbMajs mis à jour.";
+            $msg = "Import terminé (" . CATEGORIES_PERSONNEL[$categorieImport] . ") : $nbAjouts ajouté(s), $nbMajs mis à jour.";
             if (!empty($erreurs)) {
                 $msg .= " <br><small>" . count($erreurs) . " remarque(s) (voir détail ci-dessous).</small>";
                 $_SESSION['import_erreurs_personnel'] = $erreurs;
@@ -426,13 +426,36 @@ include '../views/layouts/header.php';
                     <a href="enseignants.php" class="btn-close btn-close-white"></a>
                 </div>
                 <div class="modal-body">
-                    <p class="small mb-1">Colonnes attendues, dans cet ordre :</p>
+                    <p class="small text-muted">
+                        Chaque fichier reste séparé : une école = un fichier d'enseignants (celui transmis par son
+                        directeur), et un fichier à part pour les conseillers ou le personnel administratif.
+                        La catégorie et l'école ne sont donc plus des colonnes à remplir — vous les choisissez
+                        ici une seule fois pour tout le fichier.
+                    </p>
+
+                    <div class="mb-3">
+                        <label class="form-label">Ce fichier contient…</label>
+                        <select name="type_import" id="selectTypeImportPersonnel" class="form-select" onchange="ajusterImportPersonnel()" required>
+                            <option value="enseignant_ecole">Les enseignants d'UNE école (liste d'un directeur)</option>
+                            <option value="conseiller">Les conseillers (liste de la RH)</option>
+                            <option value="administratif">Le personnel administratif</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="blocEcoleImportPersonnel">
+                        <label class="form-label">École concernée par ce fichier</label>
+                        <select name="ecole_id_import" class="form-select">
+                            <option value="">-- Choisir l'école --</option>
+                            <?php foreach ($ecoles as $e): ?>
+                                <option value="<?= $e['id'] ?>"><?= htmlspecialchars($e['nom']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <p class="small mb-1">Colonnes attendues dans le fichier, dans cet ordre :</p>
                     <ol class="small">
                         <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Téléphone</li>
-                        <li>Catégorie (Enseignant / Conseiller / Administratif — vide = Enseignant)</li>
-                        <li>Sous-type (Pédagogique/Extrascolaire pour un Conseiller ; intitulé libre pour un Administratif)</li>
-                        <li>Nom de l'école exact (laisser vide si rattaché à l'Inspection)</li>
-                        <li>Type École (Public/Privé)</li>
+                        <li>Sous-type (Pédagogique/Extrascolaire pour un Conseiller ; intitulé libre pour un Administratif ; ignoré pour un Enseignant)</li>
                         <li>Matricule (agent de l'État)</li>
                         <li>N° Autorisation d'Enseigner (Privé, Adjoints)</li>
                         <li>N° Autorisation de Diriger (Privé, Directeurs)</li>
@@ -518,6 +541,20 @@ function ajusterChampsCategorie(select) {
 }
 // Applique l'état initial de chaque formulaire déjà présent dans la page (édition)
 document.querySelectorAll('select[name="categorie"]').forEach(ajusterChampsCategorie);
+
+// Modal Import : le sélecteur d'école n'a de sens que pour un fichier d'enseignants
+// (les conseillers/administratifs sont rattachés à l'Inspection, pas à une école).
+function ajusterImportPersonnel() {
+    var type = document.getElementById('selectTypeImportPersonnel').value;
+    var bloc = document.getElementById('blocEcoleImportPersonnel');
+    var visible = type === 'enseignant_ecole';
+    bloc.style.display = visible ? '' : 'none';
+    bloc.querySelectorAll('select').forEach(function (champ) {
+        champ.required = visible;
+        champ.disabled = !visible;
+    });
+}
+document.addEventListener('DOMContentLoaded', ajusterImportPersonnel);
 
 function toggleTousPersonnel(caseTete) {
     document.querySelectorAll('.check-personnel').forEach(function (c) { c.checked = caseTete.checked; });
