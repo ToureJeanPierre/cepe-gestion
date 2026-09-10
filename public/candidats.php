@@ -2,6 +2,7 @@
 session_start();
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/groupe_scolaire_helpers.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 $pageTitle = 'Gestion des Candidats CEPE';
@@ -22,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
             $rows = $spreadsheet->getActiveSheet()->toArray();
             array_shift($rows); // Saute en-tête
 
-            $nbAjouts = 0; $nbMajs = 0; $erreurs = [];
+            $nbAjouts = 0; $nbMajs = 0; $nbEcolesRenommees = 0; $erreurs = [];
 
             foreach ($rows as $index => $row) {
                 $numLigne = $index + 2;
@@ -52,8 +53,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
 
                     $aActe = (in_array(strtoupper(trim($row[7] ?? '')), ['O', 'OUI', '1'])) ? 1 : 0;
 
-                    $statutRaw = strtolower(trim($row[8] ?? 'non_entamee'));
-                    $statutDemande = in_array($statutRaw, ['en_cours', 'faite']) ? $statutRaw : 'non_entamee';
+                    // Statut de la demande : si la colonne est explicitement renseignée, on la
+                    // respecte ; sinon (import en masse sans ce détail), on déduit un statut
+                    // simple depuis la présence du matricule — règle demandée par l'IEPP, qui ne
+                    // suit pas l'état "en_cours" via l'import (trop chronophage sur de gros volumes).
+                    $statutRaw = strtolower(trim($row[8] ?? ''));
+                    if (in_array($statutRaw, ['non_entamee', 'en_cours', 'faite'], true)) {
+                        $statutDemande = $statutRaw;
+                    } else {
+                        $statutDemande = !empty($matricule) ? 'faite' : 'non_entamee';
+                    }
 
                     // Gestion École vs Candidat Libre
                     $nomEcole = preg_replace('/\s+/', ' ', trim($row[9] ?? ''));
@@ -68,12 +77,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                         // écoles homonymes) : on l'essaie en priorité s'il est fourni.
                         $resE = null;
                         if (!empty($codeDspsEcole)) {
-                            $stmtE = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(code_dsps)) = LOWER(TRIM(?)) LIMIT 1");
+                            $stmtE = $pdo->prepare("SELECT id, nom FROM ecoles WHERE LOWER(TRIM(code_dsps)) = LOWER(TRIM(?)) LIMIT 1");
                             $stmtE->execute([$codeDspsEcole]);
                             $resE = $stmtE->fetch();
+
+                            // Uniformisation : le nom transmis via l'import (repris tel quel de la
+                            // plateforme DSPS) devient le nom de référence de l'école dans l'appli,
+                            // dès lors que l'école a été retrouvée de façon fiable par son code DSPS.
+                            if ($resE && !empty($nomEcole) && strcasecmp(trim($resE['nom']), $nomEcole) !== 0) {
+                                $pdo->prepare("UPDATE ecoles SET nom = ? WHERE id = ?")->execute([$nomEcole, $resE['id']]);
+                                $nbEcolesRenommees++;
+                            }
                         }
                         if (!$resE && !empty($nomEcole)) {
-                            $stmtE = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
+                            $stmtE = $pdo->prepare("SELECT id, nom FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
                             $stmtE->execute([$nomEcole]);
                             $resE = $stmtE->fetch();
                         }
@@ -113,7 +130,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                 }
             }
 
+            if ($nbEcolesRenommees > 0) {
+                recalculerGroupesScolaires($pdo);
+            }
+
             $msg = "Import terminé : $nbAjouts nouveaux, $nbMajs mis à jour.";
+            if ($nbEcolesRenommees > 0) {
+                $msg .= " $nbEcolesRenommees école(s) renommée(s) selon le nom DSPS transmis.";
+            }
             if (!empty($erreurs)) {
                 $msg .= " <br><small>" . count($erreurs) . " erreurs (voir détail ci-dessous).</small>";
                 $_SESSION['import_erreurs'] = $erreurs;
