@@ -45,9 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
             $erreurs = [];
 
             // Colonnes attendues (catégorie et école fixées pour tout le fichier, cf. ci-dessus) :
-            // A:Nom B:Prénoms C:Sexe D:Téléphone E:Sous-type F:Matricule
-            // G:N°AutoEnseigner H:N°AutoDiriger I:NiveauTenu J:Emploi K:Grade
-            // L:Fonction M:Disponibilité N:PlusHautDiplôme O:PlusHautNiveauÉtude
+            // A:Nom B:Prénoms C:Sexe D:Téléphone E:Matricule (Public) / N° Autorisation (Privé)
+            // F:NiveauTenu G:Emploi (IO/IA — Public uniquement, ignoré si école Privée)
+            // H:Fonction I:Disponibilité
+            //
+            // Simplifications volontaires par rapport à la fiche complète (édition manuelle) :
+            //   - Sous-type, Grade, Diplôme et Niveau d'étude ne sont plus des colonnes de
+            //     l'import (peu utiles au suivi CEPE, modifiables ensuite à la main si besoin).
+            //   - Un enseignant n'a qu'UN SEUL identifiant selon son école : matricule si
+            //     Public, n° d'autorisation (enseigner ou diriger selon la Fonction) si Privé.
+            //   - École Privée -> Emploi toujours 'IA' automatiquement.
+            //   - École Publique -> Grade déduit automatiquement de l'Emploi (IO -> B3, IA -> C3).
             foreach ($rows as $index => $row) {
                 $numLigne = $index + 2;
                 try {
@@ -56,26 +64,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                     $prenoms = trim($row[1] ?? '');
                     $sexe = strtoupper(trim($row[2] ?? 'M')) === 'F' ? 'F' : 'M';
                     $telephone = trim($row[3] ?? '');
-                    $sousType = trim($row[4] ?? '') ?: null;
-                    $matricule = trim($row[5] ?? '') ?: null;
-                    $numAutoEnseigner = trim($row[6] ?? '') ?: null;
-                    $numAutoDiriger = trim($row[7] ?? '') ?: null;
+                    $identifiant = trim($row[4] ?? '') ?: null;
 
-                    $niveauVal = in_array(trim($row[8] ?? ''), NIVEAUX) ? trim($row[8]) : null;
-                    $emploiVal = in_array(strtoupper(trim($row[9] ?? '')), ['IO', 'IA']) ? strtoupper(trim($row[9])) : null;
-                    $gradeVal = trim($row[10] ?? '') ?: null;
+                    $niveauVal = in_array(trim($row[5] ?? ''), NIVEAUX) ? trim($row[5]) : null;
+                    $emploiVal = in_array(strtoupper(trim($row[6] ?? '')), ['IO', 'IA']) ? strtoupper(trim($row[6])) : null;
 
-                    $fonctionRaw = trim($row[11] ?? '');
-                    $fonction = !empty($fonctionRaw) ? $fonctionRaw : ($categorieImport === 'enseignant' ? 'Adjoint' : ($categorieImport === 'conseiller' ? 'Conseiller' : 'Agent Administratif'));
+                    $fonctionRaw = trim($row[7] ?? '');
 
-                    $dispRaw = trim($row[12] ?? '');
+                    $dispRaw = trim($row[8] ?? '');
                     $disponibilite = in_array($dispRaw, DISPONIBILITES) ? $dispRaw : 'En activité';
 
-                    $diplome = trim($row[13] ?? '') ?: null;
-                    $niveauEtude = trim($row[14] ?? '') ?: null;
+                    $sousType = null;
+                    $diplome = null;
+                    $niveauEtude = null;
 
                     $ecoleId = $categorieImport === 'enseignant' ? $ecoleIdImport : null;
                     $typeEcole = $categorieImport === 'enseignant' ? $typeEcoleImport : 'Public';
+
+                    $matricule = null;
+                    $numAutoEnseigner = null;
+                    $numAutoDiriger = null;
+                    $gradeVal = null;
+
+                    if ($categorieImport === 'enseignant') {
+                        // La liste d'une école ne distingue que Directeur / Adjoint.
+                        $fonction = stripos($fonctionRaw, 'directeur') === 0 ? 'Directeur' : 'Adjoint';
+
+                        if ($typeEcole === 'Privé') {
+                            $emploiVal = 'IA'; // automatique en privé
+                            if ($fonction === 'Directeur') {
+                                $numAutoDiriger = $identifiant;
+                            } else {
+                                $numAutoEnseigner = $identifiant;
+                            }
+                        } else {
+                            $matricule = $identifiant;
+                            if ($emploiVal === 'IO') {
+                                $gradeVal = 'B3';
+                            } elseif ($emploiVal === 'IA') {
+                                $gradeVal = 'C3';
+                            }
+                        }
+                    } else {
+                        $matricule = $identifiant;
+                        $fonction = !empty($fonctionRaw) ? $fonctionRaw : ($categorieImport === 'conseiller' ? 'Conseiller' : 'Agent Administratif');
+                    }
 
                     // Vérification Doublon : par Matricule (Public) ou N° d'autorisation (Privé) si
                     // disponible — clés les plus fiables — sinon par Nom + Prénoms + École.
@@ -455,18 +488,16 @@ include '../views/layouts/header.php';
                     <p class="small mb-1">Colonnes attendues dans le fichier, dans cet ordre :</p>
                     <ol class="small">
                         <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Téléphone</li>
-                        <li>Sous-type (Pédagogique/Extrascolaire pour un Conseiller ; intitulé libre pour un Administratif ; ignoré pour un Enseignant)</li>
-                        <li>Matricule (agent de l'État)</li>
-                        <li>N° Autorisation d'Enseigner (Privé, Adjoints)</li>
-                        <li>N° Autorisation de Diriger (Privé, Directeurs)</li>
+                        <li>Matricule (école Publique) ou N° d'autorisation (école Privée) — une seule colonne, orientée automatiquement vers "enseigner" ou "diriger" selon la Fonction</li>
                         <li>Niveau tenu (CP1 à CM2 — vide = Sans classe)</li>
-                        <li>Emploi (IO/IA)</li>
-                        <li>Grade</li>
-                        <li>Fonction (ex : Directeur (avec classe), Adjoint, Conseiller Pédagogique...)</li>
-                        <li>Disponibilité (En activité / Congé maternité / Congé maladie / Absent / Autre)</li>
-                        <li>Plus haut diplôme obtenu</li>
-                        <li>Plus haut niveau d'étude atteint</li>
+                        <li>Emploi : IO ou IA (Public uniquement — en école Privée, IA est appliqué automatiquement, colonne ignorée)</li>
+                        <li>Fonction (Directeur ou Adjoint pour un fichier d'enseignants ; texte libre pour Conseillers/Administratifs)</li>
+                        <li>Disponibilité (En activité / Congé maternité / Congé maladie / Absent / Autre — vide = En activité)</li>
                     </ol>
+                    <p class="small text-muted">
+                        Le grade des enseignants du Public est déduit automatiquement de l'emploi (IO → B3, IA → C3).
+                        Sous-type, grade (Privé), diplôme et niveau d'étude ne sont plus demandés à l'import — modifiables ensuite au cas par cas via "Modifier".
+                    </p>
                     <input type="file" name="fichier_personnel" class="form-control" accept=".xlsx,.xls" required>
                 </div>
                 <div class="modal-footer">
