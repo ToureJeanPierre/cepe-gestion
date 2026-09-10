@@ -27,15 +27,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
             foreach ($rows as $index => $row) {
                 $numLigne = $index + 2;
                 try {
-                    // Colonnes attendues : A:Nom, B:Prénoms, C:Sexe, D:DateNaiss, E:LieuNaiss, F:Matricule, G:Acte(O/N), H:StatutDemande, I:NomÉcole (ou 'LIBRE')
+                    // Colonnes attendues : A:Nom, B:Prénoms, C:Sexe, D:Nationalité, E:DateNaiss,
+                    // F:LieuNaiss, G:Matricule, H:Acte(O/N), I:StatutDemande, J:NomÉcole (ou 'LIBRE'), K:CodeDSPSÉcole
                     $nom = trim($row[0] ?? '');
                     if (empty($nom)) continue;
 
                     $prenoms = trim($row[1] ?? '');
                     $sexe = (strtoupper(trim($row[2] ?? '')) === 'F') ? 'F' : 'M';
-                    
+                    $nationalite = trim($row[3] ?? '') ?: null;
+
                     // Gestion Date Naissance (Excel serial ou string)
-                    $dateNaissRaw = $row[3] ?? null;
+                    $dateNaissRaw = $row[4] ?? null;
                     $dateNaiss = null;
                     if (!empty($dateNaissRaw)) {
                         if (is_numeric($dateNaissRaw)) {
@@ -45,30 +47,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                         }
                     }
 
-                    $lieuNaiss = trim($row[4] ?? '');
-                    $matricule = !empty(trim($row[5] ?? '')) ? trim($row[5]) : null;
-                    
-                    $aActe = (in_array(strtoupper(trim($row[6] ?? '')), ['O', 'OUI', '1'])) ? 1 : 0;
-                    
-                    $statutRaw = strtolower(trim($row[7] ?? 'non_entamee'));
+                    $lieuNaiss = trim($row[5] ?? '');
+                    $matricule = !empty(trim($row[6] ?? '')) ? trim($row[6]) : null;
+
+                    $aActe = (in_array(strtoupper(trim($row[7] ?? '')), ['O', 'OUI', '1'])) ? 1 : 0;
+
+                    $statutRaw = strtolower(trim($row[8] ?? 'non_entamee'));
                     $statutDemande = in_array($statutRaw, ['en_cours', 'faite']) ? $statutRaw : 'non_entamee';
 
                     // Gestion École vs Candidat Libre
-                    $nomEcole = preg_replace('/\s+/', ' ', trim($row[8] ?? ''));
+                    $nomEcole = preg_replace('/\s+/', ' ', trim($row[9] ?? ''));
+                    $codeDspsEcole = trim($row[10] ?? '');
                     $ecoleId = null;
                     $estLibre = 0;
 
-                    if (strtoupper($nomEcole) === 'LIBRE' || empty($nomEcole)) {
+                    if (strtoupper($nomEcole) === 'LIBRE' || (empty($nomEcole) && empty($codeDspsEcole))) {
                         $estLibre = 1;
                     } else {
-                        // Recherche insensible à la casse et aux espaces superflus
-                        $stmtE = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
-                        $stmtE->execute([$nomEcole]);
-                        $resE = $stmtE->fetch();
+                        // Le code DSPS de l'école est plus fiable qu'un nom (fautes de frappe,
+                        // écoles homonymes) : on l'essaie en priorité s'il est fourni.
+                        $resE = null;
+                        if (!empty($codeDspsEcole)) {
+                            $stmtE = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(code_dsps)) = LOWER(TRIM(?)) LIMIT 1");
+                            $stmtE->execute([$codeDspsEcole]);
+                            $resE = $stmtE->fetch();
+                        }
+                        if (!$resE && !empty($nomEcole)) {
+                            $stmtE = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
+                            $stmtE->execute([$nomEcole]);
+                            $resE = $stmtE->fetch();
+                        }
                         if ($resE) {
                             $ecoleId = $resE['id'];
                         } else {
-                            $erreurs[] = "Ligne $numLigne : École '$nomEcole' introuvable (candidat : $nom $prenoms).";
+                            $erreurs[] = "Ligne $numLigne : École '$nomEcole' (code DSPS '$codeDspsEcole') introuvable (candidat : $nom $prenoms).";
                             continue;
                         }
                     }
@@ -87,13 +99,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
 
                     if ($existing) {
                         // Mise à jour de l'existant (On ne crée pas de doublon, on met à jour le statut/matricule)
-                        $upd = $pdo->prepare("UPDATE candidats SET matricule_dsps=?, a_acte_naissance=?, statut_demande=?, date_naissance=?, lieu_naissance=? WHERE id=?");
-                        $upd->execute([$matricule, $aActe, $statutDemande, $dateNaiss, $lieuNaiss, $existing['id']]);
+                        $upd = $pdo->prepare("UPDATE candidats SET matricule_dsps=?, a_acte_naissance=?, statut_demande=?, date_naissance=?, lieu_naissance=?, nationalite=? WHERE id=?");
+                        $upd->execute([$matricule, $aActe, $statutDemande, $dateNaiss, $lieuNaiss, $nationalite, $existing['id']]);
                         $nbMajs++;
                     } else {
                         // Insertion Nouveau
-                        $ins = $pdo->prepare("INSERT INTO candidats (annee_id, nom, prenoms, sexe, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        $ins->execute([$anneeId, $nom, $prenoms, $sexe, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre]);
+                        $ins = $pdo->prepare("INSERT INTO candidats (annee_id, nom, prenoms, sexe, nationalite, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $ins->execute([$anneeId, $nom, $prenoms, $sexe, $nationalite, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre]);
                         $nbAjouts++;
                     }
                 } catch (Exception $e) {
@@ -124,20 +136,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajouter_candidat'])) 
     $nom = trim($_POST['nom']);
     $prenoms = trim($_POST['prenoms']);
     $sexe = $_POST['sexe'];
+    $nationalite = trim($_POST['nationalite'] ?? '') ?: null;
     $dateNaiss = !empty($_POST['date_naissance']) ? $_POST['date_naissance'] : null;
     $lieuNaiss = trim($_POST['lieu_naissance']);
     $matricule = !empty(trim($_POST['matricule_dsps'])) ? trim($_POST['matricule_dsps']) : null;
     $aActe = isset($_POST['a_acte_naissance']) ? 1 : 0;
     $statutDemande = $_POST['statut_demande'];
-    
+
     $estLibre = isset($_POST['est_candidat_libre']) ? 1 : 0;
     $ecoleId = ($estLibre == 0 && !empty($_POST['ecole_id'])) ? (int)$_POST['ecole_id'] : null;
-    
+
     // Si libre, on peut optionally choisir un centre
     $centreId = ($estLibre == 1 && !empty($_POST['centre_examen_id'])) ? (int)$_POST['centre_examen_id'] : null;
 
-    $stmt = $pdo->prepare("INSERT INTO candidats (annee_id, nom, prenoms, sexe, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre, centre_examen_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->execute([$anneeId, $nom, $prenoms, $sexe, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre, $centreId]);
+    $stmt = $pdo->prepare("INSERT INTO candidats (annee_id, nom, prenoms, sexe, nationalite, date_naissance, lieu_naissance, matricule_dsps, a_acte_naissance, statut_demande, ecole_id, est_candidat_libre, centre_examen_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$anneeId, $nom, $prenoms, $sexe, $nationalite, $dateNaiss, $lieuNaiss, $matricule, $aActe, $statutDemande, $ecoleId, $estLibre, $centreId]);
 
     header("Location: candidats.php");
     exit;
@@ -480,13 +493,15 @@ include '../views/layouts/header.php';
             <div class="modal-content">
                 <div class="modal-header bg-success text-white"><h5>Importer Liste Élèves (Excel)</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
-                    <p>Le système mettra à jour les élèves existants (même nom/prénom/école) et ajoutera les nouveaux.</p>
+                    <p>Le système mettra à jour les élèves existants (même matricule, ou même nom/prénom/date de naissance/école) et ajoutera les nouveaux.</p>
                     <p class="small"><strong>Colonnes requises :</strong></p>
                     <ol class="small">
-                        <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Date Naissance (JJ/MM/AAAA)</li>
+                        <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Nationalité</li>
+                        <li>Date Naissance (JJ/MM/AAAA)</li>
                         <li>Lieu Naissance</li><li>Matricule DSPS (laisser vide si aucun)</li>
                         <li>Acte Naissance (O/N)</li><li>Statut Demande (non_entamee/en_cours/faite)</li>
                         <li>Nom École (ou écrire <strong>LIBRE</strong> pour candidat libre)</li>
+                        <li>Code DSPS de l'école (optionnel — utilisé en priorité pour retrouver l'école si renseigné, plus fiable qu'un nom)</li>
                     </ol>
                     <input type="file" name="fichier_candidats" class="form-control" accept=".xlsx,.xls" required>
                 </div>
@@ -513,12 +528,13 @@ include '../views/layouts/header.php';
                         <div class="col-md-6 mb-2"><label>Prénoms *</label><input type="text" name="prenoms" class="form-control" required></div>
                     </div>
                     <div class="row">
-                        <div class="col-md-4 mb-2">
+                        <div class="col-md-3 mb-2">
                             <label>Sexe *</label>
                             <select name="sexe" class="form-select"><option value="M">Garçon</option><option value="F">Fille</option></select>
                         </div>
-                        <div class="col-md-4 mb-2"><label>Date Naissance</label><input type="date" name="date_naissance" class="form-control"></div>
-                        <div class="col-md-4 mb-2"><label>Lieu Naissance</label><input type="text" name="lieu_naissance" class="form-control"></div>
+                        <div class="col-md-3 mb-2"><label>Nationalité</label><input type="text" name="nationalite" class="form-control" placeholder="Ivoirienne"></div>
+                        <div class="col-md-3 mb-2"><label>Date Naissance</label><input type="date" name="date_naissance" class="form-control"></div>
+                        <div class="col-md-3 mb-2"><label>Lieu Naissance</label><input type="text" name="lieu_naissance" class="form-control"></div>
                     </div>
                     
                     <hr>
