@@ -21,6 +21,15 @@ if ($anneeLectureSeule) {
     exit;
 }
 
+$stmtAnneeCible = $pdo->prepare("SELECT annee_id FROM candidats WHERE id = ?");
+$stmtAnneeCible->execute([$id]);
+$anneeCible = $stmtAnneeCible->fetchColumn();
+if ($anneeCible !== false && estAnneeArchivee((int) $anneeCible, $anneesDisponibles)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => "Ce candidat appartient à une année scolaire archivée (lecture seule)."]);
+    exit;
+}
+
 try {
     $pdo->prepare("UPDATE candidats SET $champ = NOT $champ WHERE id = ?")->execute([$id]);
 

@@ -34,6 +34,7 @@ $listeMatieres = array_keys($matieres);
 | utilise le même mécanisme générique tutrice/rattachée).
 |--------------------------------------------------------------------------
 */
+$condEligibleCEPE = conditionCandidatEligibleCEPE('c');
 $sql = "
     SELECT
         c.id AS candidat_id,
@@ -44,9 +45,7 @@ $sql = "
     INNER JOIN ecoles e ON e.id = c.ecole_id
     LEFT JOIN ecoles t ON t.id = e.ecole_tutrice_id
     WHERE c.annee_id = ?
-      AND c.est_candidat_libre = 0
-      AND c.matricule_verifie = 1
-      AND c.droits_payes = 1
+      AND {$condEligibleCEPE}
       AND c.matricule_dsps IS NOT NULL
       AND c.matricule_dsps != ''
       AND COALESCE(t.code_dsps, e.code_dsps) IS NOT NULL

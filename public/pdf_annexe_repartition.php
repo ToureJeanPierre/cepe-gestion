@@ -32,13 +32,14 @@ $stmt = $pdo->prepare("
 $stmt->execute([$examenId, $anneeId]);
 $centres = $stmt->fetchAll();
 
+$condEligibleCEPE = conditionCandidatEligibleCEPE('ca');
 $stmtOfficiels = $pdo->prepare("
     SELECT
         SUM(CASE WHEN ca.sexe = 'M' THEN 1 ELSE 0 END) AS g,
         SUM(CASE WHEN ca.sexe = 'F' THEN 1 ELSE 0 END) AS f
     FROM candidats ca
     INNER JOIN ecoles e ON e.id = ca.ecole_id
-    WHERE ca.annee_id = ? AND ca.est_candidat_libre = 0 AND ca.matricule_verifie = 1 AND ca.droits_payes = 1
+    WHERE ca.annee_id = ? AND $condEligibleCEPE
       AND (
             e.id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
          OR e.ecole_tutrice_id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)

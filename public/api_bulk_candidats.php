@@ -24,6 +24,19 @@ if ($anneeLectureSeule) {
 
 $placeholders = implode(',', array_fill(0, count($ids), '?'));
 
+// Vérifie l'année propre de CHAQUE candidat ciblé, pas seulement celle
+// sélectionnée en session (un onglet resté ouvert sur une autre année ne
+// doit pas pouvoir modifier des candidats d'une année archivée).
+$stmtAnneesCibles = $pdo->prepare("SELECT DISTINCT annee_id FROM candidats WHERE id IN ($placeholders)");
+$stmtAnneesCibles->execute($ids);
+foreach ($stmtAnneesCibles->fetchAll(PDO::FETCH_COLUMN) as $anneeCible) {
+    if (estAnneeArchivee((int) $anneeCible, $anneesDisponibles)) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => "Un ou plusieurs candidats sélectionnés appartiennent à une année scolaire archivée (lecture seule)."]);
+        exit;
+    }
+}
+
 try {
     switch ($action) {
         case 'matricule_on':

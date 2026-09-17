@@ -130,16 +130,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                     }
 
                     if ($existing) {
+                        // sous_type / plus_haut_diplome / plus_haut_niveau_etude ne
+                        // font pas partie des colonnes du fichier Excel importé : on
+                        // ne les touche pas ici pour ne pas écraser une valeur saisie
+                        // manuellement dans l'application par une valeur vide.
                         $upd = $pdo->prepare("
-                            UPDATE personnel SET ecole_id=?, categorie=?, sous_type=?, sexe=?, telephone=?, type_ecole=?, matricule=?,
+                            UPDATE personnel SET ecole_id=?, categorie=?, sexe=?, telephone=?, type_ecole=?, matricule=?,
                                 numero_autorisation_enseigner=?, numero_autorisation_diriger=?, niveau_tenu=?, emploi=?, grade=?,
-                                fonction=?, disponibilite=?, plus_haut_diplome=?, plus_haut_niveau_etude=?
+                                fonction=?, disponibilite=?
                             WHERE id=?
                         ");
                         $upd->execute([
-                            $ecoleId, $categorieImport, $sousType, $sexe, $telephone, $typeEcole, $matricule,
+                            $ecoleId, $categorieImport, $sexe, $telephone, $typeEcole, $matricule,
                             $numAutoEnseigner, $numAutoDiriger, $niveauVal, $emploiVal, $gradeVal, $fonction, $disponibilite,
-                            $diplome, $niveauEtude, $existing['id'],
+                            $existing['id'],
                         ]);
                         $nbMajs++;
                     } else {

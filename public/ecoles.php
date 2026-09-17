@@ -130,8 +130,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter_ecole']) || 
 
     // Règle du cahier des charges : une école sans code DSPS doit obligatoirement
     // être rattachée à une école tutrice (elle ne peut pas rester "aucun").
+    // Garde anti-collision sur le nom : deux écoles distinctes portant le même
+    // nom cassent silencieusement tous les rattachements par nom (candidats,
+    // groupes scolaires, exports DSPS) — c'est exactement ce qui a corrompu
+    // CITE SODEFOR et l'école #88 via le renommage automatique DSPS.
+    $idActuel = isset($_POST['modifier_ecole']) ? (int) $_POST['id'] : 0;
+    $stmtCollisionNom = $pdo->prepare("SELECT id FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND id != ? LIMIT 1");
+    $stmtCollisionNom->execute([$nom, $idActuel]);
+    $collisionNom = $stmtCollisionNom->fetch();
+
     if (empty($codeDsps) && !$tuteurId) {
         $error = "Cette école n'a pas de code DSPS : elle doit obligatoirement être rattachée à une école tutrice.";
+    } elseif ($collisionNom) {
+        $error = "Le nom \"$nom\" est déjà utilisé par une autre école (id {$collisionNom['id']}) — choisissez un nom distinct.";
     } elseif (isset($_POST['ajouter_ecole'])) {
         $stmt = $pdo->prepare("INSERT INTO ecoles (annee_id, nom, code_dsps, statut, ecole_tutrice_id, type_rattachement, groupe_scolaire, groupe_scolaire_manuel, directeur_nom, directeur_telephone, effectif_general, est_centre_examen, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manuel')");
         $stmt->execute([$anneeActive['id'] ?? $anneeId, $nom, $codeDsps, $statut, $tuteurId, $typeRatt, $groupe, $groupeVerrouille, $directeur, $tel, $effectif, $centre]);

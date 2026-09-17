@@ -47,13 +47,14 @@ if ($examenId) {
         $listeMatieresStats = array_keys(matieresPourExamen($examenPourStats['code']));
         $estFinalStats = $examenPourStats['code'] === 'CEPE_FINAL';
 
+        $condEligibleCEPE = conditionCandidatEligibleCEPE('c');
         $stmt = $pdo->prepare("
             SELECT c.id, e.statut
             FROM candidats c
             LEFT JOIN ecoles e ON e.id = c.ecole_id
             WHERE c.annee_id = ?
               AND (
-                    (c.est_candidat_libre = 0 AND c.matricule_verifie = 1 AND c.droits_payes = 1)
+                    $condEligibleCEPE
                  OR (c.est_candidat_libre = 1 AND ? = 1)
               )
         ");

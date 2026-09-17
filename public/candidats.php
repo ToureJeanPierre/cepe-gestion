@@ -25,6 +25,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
 
             $nbAjouts = 0; $nbMajs = 0; $nbEcolesRenommees = 0; $erreurs = [];
 
+            // Cache en mémoire des écoles déjà recherchées (par code DSPS et par nom) :
+            // sur un import de plusieurs milliers de candidats, des centaines de lignes
+            // partagent la même école — évite de relancer la même requête à chaque ligne.
+            $ecoleParCodeCache = [];
+            $ecoleParNomCache = [];
+
             foreach ($rows as $index => $row) {
                 $numLigne = $index + 2;
                 try {
@@ -77,9 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                         // écoles homonymes) : on l'essaie en priorité s'il est fourni.
                         $resE = null;
                         if (!empty($codeDspsEcole)) {
-                            $stmtE = $pdo->prepare("SELECT id, nom FROM ecoles WHERE LOWER(TRIM(code_dsps)) = LOWER(TRIM(?)) LIMIT 1");
-                            $stmtE->execute([$codeDspsEcole]);
-                            $resE = $stmtE->fetch();
+                            $cleCode = strtolower(trim($codeDspsEcole));
+                            if (!array_key_exists($cleCode, $ecoleParCodeCache)) {
+                                $stmtE = $pdo->prepare("SELECT id, nom FROM ecoles WHERE LOWER(TRIM(code_dsps)) = LOWER(TRIM(?)) LIMIT 1");
+                                $stmtE->execute([$codeDspsEcole]);
+                                $ecoleParCodeCache[$cleCode] = $stmtE->fetch() ?: null;
+                            }
+                            $resE = $ecoleParCodeCache[$cleCode];
 
                             // Uniformisation : le nom transmis via l'import (repris tel quel de la
                             // plateforme DSPS) devient le nom de référence de l'école dans l'appli,
@@ -95,13 +105,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                                 } else {
                                     $pdo->prepare("UPDATE ecoles SET nom = ? WHERE id = ?")->execute([$nomEcole, $resE['id']]);
                                     $nbEcolesRenommees++;
+                                    $resE['nom'] = $nomEcole;
+                                    $ecoleParCodeCache[$cleCode] = $resE;
                                 }
                             }
                         }
                         if (!$resE && !empty($nomEcole)) {
-                            $stmtE = $pdo->prepare("SELECT id, nom FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
-                            $stmtE->execute([$nomEcole]);
-                            $resE = $stmtE->fetch();
+                            $cleNom = strtolower(trim($nomEcole));
+                            if (!array_key_exists($cleNom, $ecoleParNomCache)) {
+                                $stmtE = $pdo->prepare("SELECT id, nom FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
+                                $stmtE->execute([$nomEcole]);
+                                $ecoleParNomCache[$cleNom] = $stmtE->fetch() ?: null;
+                            }
+                            $resE = $ecoleParNomCache[$cleNom];
                         }
                         if ($resE) {
                             $ecoleId = $resE['id'];
@@ -193,7 +209,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajouter_candidat'])) 
 // TRAITEMENT : SUPPRESSION
 // ==========================================
 if (isset($_GET['supprimer'])) {
-    $pdo->prepare("DELETE FROM candidats WHERE id = ?")->execute([(int)$_GET['supprimer']]);
+    $candidatIdSuppr = (int) $_GET['supprimer'];
+    $stmtAnnee = $pdo->prepare("SELECT annee_id FROM candidats WHERE id = ?");
+    $stmtAnnee->execute([$candidatIdSuppr]);
+    $anneeCandidat = $stmtAnnee->fetchColumn();
+    if ($anneeCandidat !== false && estAnneeArchivee((int) $anneeCandidat, $anneesDisponibles)) {
+        die("Ce candidat appartient à une année scolaire archivée (lecture seule) : suppression impossible.");
+    }
+    $pdo->prepare("DELETE FROM candidats WHERE id = ?")->execute([$candidatIdSuppr]);
     header("Location: candidats.php");
     exit;
 }

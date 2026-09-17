@@ -181,6 +181,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_notes'])) {
 $filtreEcole = $_GET['ecole_id'] ?? '';
 $filtreRecherche = $_GET['q'] ?? '';
 
+$condEligibleCEPE = conditionCandidatEligibleCEPE('c');
 $sql = "
     SELECT c.id, c.nom, c.prenoms, c.matricule_dsps, c.est_candidat_libre, c.ecole_id,
            COALESCE(e.nom, 'Candidats Libres') AS nom_ecole
@@ -188,7 +189,7 @@ $sql = "
     LEFT JOIN ecoles e ON e.id = c.ecole_id
     WHERE c.annee_id = ?
       AND (
-            (c.est_candidat_libre = 0 AND c.matricule_verifie = 1 AND c.droits_payes = 1)
+            $condEligibleCEPE
          OR (c.est_candidat_libre = 1 AND ? = 1)
       )
 ";

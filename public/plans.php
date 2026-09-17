@@ -856,19 +856,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         // Effectif scolaire = candidats OFFICIELS validés de l'école du centre
                         // + de ses rattachées (même règle que le calcul d'effectif de centres.php)
+                        $condEligibleCEPE = conditionCandidatEligibleCEPE('ca');
                         $stmtCand = $pdo->prepare("
                             SELECT ca.id, ca.nom, ca.prenoms
                             FROM candidats ca
                             INNER JOIN ecoles e ON e.id = ca.ecole_id
-                            WHERE ca.est_candidat_libre = 0
-                              AND ca.matricule_verifie = 1
-                              AND ca.droits_payes = 1
+                            WHERE ca.annee_id = ?
+                              AND $condEligibleCEPE
                               AND (
                                     e.id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
                                  OR e.ecole_tutrice_id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
                               )
                         ");
-                        $stmtCand->execute([$centreId, $centreId]);
+                        $stmtCand->execute([$anneeId, $centreId, $centreId]);
                         $candidats = $stmtCand->fetchAll();
 
                         // Candidats libres : uniquement pour l'Examen Final
@@ -876,9 +876,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $stmtLibres = $pdo->prepare("
                                 SELECT id, nom, prenoms
                                 FROM candidats
-                                WHERE est_candidat_libre = 1 AND centre_examen_id = ?
+                                WHERE annee_id = ? AND est_candidat_libre = 1 AND centre_examen_id = ?
                             ");
-                            $stmtLibres->execute([$centreId]);
+                            $stmtLibres->execute([$anneeId, $centreId]);
                             $candidats = array_merge($candidats, $stmtLibres->fetchAll());
                         }
 
@@ -896,6 +896,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 . " : effectif candidats (" . count($candidatIds) . ") différent "
                                 . "de la capacité des salles (" . $capaciteTotale . "). "
                                 . "Régénérez le plan de salle si l'effectif a changé.";
+
+                            // Au-delà de la capacité des salles, les candidats excédentaires ne
+                            // seront pas insérés dans plan_salle_candidats (boucle bornée par
+                            // salle['capacite'] ci-dessous) : on les nomme explicitement pour que
+                            // le personnel sache exactement qui manquera sur la feuille d'émargement.
+                            if (count($candidatIds) > $capaciteTotale) {
+                                $candidatsNonPlaces = array_slice($candidats, $capaciteTotale);
+                                $nomsNonPlaces = array_map(
+                                    fn ($c) => $c['nom'] . ' ' . $c['prenoms'],
+                                    $candidatsNonPlaces
+                                );
+                                $avertissementsEmargement[] =
+                                    $centreEff['nom_centre'] . " : " . count($candidatsNonPlaces)
+                                    . " candidat(s) NE FIGURERONT PAS sur la feuille d'émargement faute de place : "
+                                    . implode(', ', $nomsNonPlaces) . ".";
+                            }
                         }
 
                         // Repart de zéro pour ce centre (une régénération recalcule toute l'affectation)

@@ -116,10 +116,17 @@ class AffectationEngine
      */
     private function centresParEcole(): array
     {
-        $stmt = $this->pdo->query("
-            SELECT centre_id, ecole_composante_id
-            FROM ecole_centre
+        // Filtré par l'année en cours via `centres` : les écoles ne sont pas
+        // dupliquées par année, mais la composition école→centre peut
+        // changer d'une année à l'autre, donc seuls les centres de l'année
+        // courante doivent nourrir le calcul anti-collusion.
+        $stmt = $this->pdo->prepare("
+            SELECT ecc.centre_id, ecc.ecole_composante_id
+            FROM ecole_centre ecc
+            JOIN centres c ON c.id = ecc.centre_id
+            WHERE c.annee_id = ?
         ");
+        $stmt->execute([$this->anneeId]);
 
         $resultat = [];
         foreach ($stmt->fetchAll() as $ligne) {
@@ -208,11 +215,11 @@ class AffectationEngine
                 c.id AS centre_id,
                 e.nom AS ecole_nom,
                 ce.id AS centre_effectif_id,
-                COALESCE(ce.effectif_retenu, ce.effectif_calcule) AS effectif,
+                COALESCE(ce.effectif_retenu, ce.effectif_calcule, 0) AS effectif,
                 (SELECT COUNT(*) FROM plan_salles ps WHERE ps.centre_effectif_id = ce.id) AS nb_salles
             FROM centres c
             JOIN ecoles e ON e.id = c.ecole_id
-            JOIN centre_effectifs ce ON ce.centre_id = c.id AND ce.examen_id = ?
+            LEFT JOIN centre_effectifs ce ON ce.centre_id = c.id AND ce.examen_id = ?
             WHERE c.annee_id = ?
             ORDER BY e.nom
         ");
@@ -229,6 +236,10 @@ class AffectationEngine
                 'nb_salles'          => $nbSalles,
                 // Examen Final : nb salles + 2 surveillants de réserve.
                 // Blancs : pas de quota fixe, on mobilise 100% du vivier.
+                // Un centre sans ligne centre_effectifs (ce.id NULL, effectif
+                // jamais calculé) doit tomber dans le même cas que "0 salle"
+                // pour rester visible avec un avertissement plutôt que de
+                // disparaître silencieusement de l'écran d'affectation.
                 'quota_surveillants' => $estFinal ? ($nbSalles > 0 ? $nbSalles + 2 : 0) : null,
             ];
         }
@@ -258,6 +269,12 @@ class AffectationEngine
         bool $estManuel,
         ?int $planSalleId = null
     ): bool {
+        $stmtCentre = $this->pdo->prepare("SELECT COUNT(*) FROM centres WHERE id = ? AND annee_id = ?");
+        $stmtCentre->execute([$centreId, $this->anneeId]);
+        if ((int) $stmtCentre->fetchColumn() === 0) {
+            return false;
+        }
+
         if ($role !== 'Superviseur') {
             $stmt = $this->pdo->prepare("
                 SELECT COUNT(*) FROM affectations

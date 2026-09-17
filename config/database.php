@@ -65,4 +65,36 @@ if ($anneeSelectionnee) {
 $anneeId = $anneeSelectionnee['id'] ?? null;
 $ANNEE_SCOLAIRE = $anneeSelectionnee['annee_scolaire'] ?? null;
 $anneeLectureSeule = ($anneeSelectionnee['statut'] ?? null) === 'archive';
+
+/**
+ * Vrai si l'année scolaire donnée (par id) est archivée. Sert à verrouiller
+ * une écriture ciblant un enregistrement précis (ex: suppression par id),
+ * indépendamment de l'année actuellement sélectionnée en session — utile
+ * contre un onglet resté ouvert sur une autre année ou un lien obsolète.
+ * Ne fait aucune requête : cherche dans $anneesDisponibles déjà chargé.
+ */
+function estAnneeArchivee(?int $anneeId, array $anneesDisponibles): bool
+{
+    if ($anneeId === null) {
+        return false;
+    }
+    foreach ($anneesDisponibles as $a) {
+        if ((int) $a['id'] === $anneeId) {
+            return $a['statut'] === 'archive';
+        }
+    }
+    return false;
+}
+
+/**
+ * Fragment SQL de la règle d'éligibilité CEPE d'un candidat (officiel,
+ * matricule vérifié, droits payés) — dupliquée mot pour mot dans plusieurs
+ * fichiers (résultats, PDF, export DSPS, effectifs de centres, plans de
+ * salle) avant sa centralisation ici. $alias est l'alias SQL de la table
+ * `candidats` dans la requête appelante (ex: 'c', 'ca').
+ */
+function conditionCandidatEligibleCEPE(string $alias = 'c'): string
+{
+    return "({$alias}.est_candidat_libre = 0 AND {$alias}.matricule_verifie = 1 AND {$alias}.droits_payes = 1)";
+}
 ?>

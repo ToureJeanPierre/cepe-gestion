@@ -1058,6 +1058,7 @@ if (!$examenActif && !empty($examens)) {
 | l'utilisateur n'a pas imposé une valeur manuelle.
 |--------------------------------------------------------------------------
 */
+$condEligibleCEPE = conditionCandidatEligibleCEPE('ca');
 foreach ($centres as &$centre) {
     $centre['effectifs'] = [];
 
@@ -1073,15 +1074,14 @@ foreach ($centres as &$centre) {
             SELECT COUNT(*)
             FROM candidats AS ca
             INNER JOIN ecoles AS e ON e.id = ca.ecole_id
-            WHERE ca.est_candidat_libre = 0
-              AND ca.matricule_verifie = 1
-              AND ca.droits_payes = 1
+            WHERE ca.annee_id = ?
+              AND $condEligibleCEPE
               AND (
                     e.id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
                  OR e.ecole_tutrice_id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
               )
         ");
-        $stmt->execute([$centreId, $centreId]);
+        $stmt->execute([$anneeId, $centreId, $centreId]);
         $effectifScolaire = (int) $stmt->fetchColumn();
 
         // Candidats libres : pas de condition de validation (comptés directement dès
@@ -1092,10 +1092,11 @@ foreach ($centres as &$centre) {
             $stmt = $pdo->prepare("
                 SELECT COUNT(*)
                 FROM candidats
-                WHERE est_candidat_libre = 1
+                WHERE annee_id = ?
+                  AND est_candidat_libre = 1
                   AND centre_examen_id = ?
             ");
-            $stmt->execute([$centreId]);
+            $stmt->execute([$anneeId, $centreId]);
             $effectifLibre = (int) $stmt->fetchColumn();
         }
 

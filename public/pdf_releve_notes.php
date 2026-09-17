@@ -32,6 +32,7 @@ $totalMax = array_sum($matieres);
 | CANDIDATS ÉLIGIBLES (même règle que resultats.php), groupés par école
 |--------------------------------------------------------------------------
 */
+$condEligibleCEPE = conditionCandidatEligibleCEPE('c');
 $sql = "
     SELECT c.id, c.nom, c.prenoms, c.matricule_dsps, c.est_candidat_libre,
            COALESCE(e.nom, 'Candidats Libres') AS nom_ecole
@@ -39,7 +40,7 @@ $sql = "
     LEFT JOIN ecoles e ON e.id = c.ecole_id
     WHERE c.annee_id = ?
       AND (
-            (c.est_candidat_libre = 0 AND c.matricule_verifie = 1 AND c.droits_payes = 1)
+            $condEligibleCEPE
          OR (c.est_candidat_libre = 1 AND ? = 1)
       )
 ";
