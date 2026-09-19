@@ -39,10 +39,10 @@ $stmt->execute([$anneeId, $estFinal ? 1 : 0]);
 $candidats = $stmt->fetchAll();
 
 $notesParCandidat = [];
-$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present, dispense FROM notes WHERE examen_id = ?");
 $stmtNotes->execute([$examenId]);
 foreach ($stmtNotes->fetchAll() as $n) {
-    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present'], 'dispense' => (int) $n['dispense']];
 }
 
 $parSecteur = ['Public' => ['effectif' => 0, 'admis' => 0], 'Privé' => ['effectif' => 0, 'admis' => 0]];
@@ -62,7 +62,8 @@ foreach ($candidats as $c) {
     }
     if ($estAbsent) continue;
 
-    $moyenne = calculerMoyenne20($notesParMatiere, $examen['code']);
+    $dispenseEPS = (bool) ($notesCandidat['EPS']['dispense'] ?? false);
+    $moyenne = calculerMoyenne20($notesParMatiere, $examen['code'], $dispenseEPS);
     if ($moyenne === null) continue; // notes incomplètes, pas encore comptabilisé
 
     $parSecteur[$secteur]['effectif']++;

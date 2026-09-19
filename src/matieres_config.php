@@ -60,10 +60,20 @@ if (!function_exists('calculerMoyenne20')) {
      * non calculable tant que la saisie n'est pas complète).
      *
      * @param array<string,float|null> $notesParMatiere Matière => note obtenue (ou null)
+     * @param bool $dispenseEPS Si vrai, l'EPS est exclue du calcul (barème et
+     *        diviseur ramenés à ceux d'une Composition) — candidat dispensé
+     *        de l'épreuve physique.
      */
-    function calculerMoyenne20(array $notesParMatiere, string $codeExamen): ?float
+    function calculerMoyenne20(array $notesParMatiere, string $codeExamen, bool $dispenseEPS = false): ?float
     {
         $matieres = matieresPourExamen($codeExamen);
+        $diviseur = diviseurPourExamen($codeExamen);
+
+        if ($dispenseEPS && isset($matieres['EPS'])) {
+            unset($matieres['EPS']);
+            $diviseur = DIVISEUR_COMPOSITION;
+        }
+
         $total = 0.0;
         foreach ($matieres as $matiere => $max) {
             if (!array_key_exists($matiere, $notesParMatiere) || $notesParMatiere[$matiere] === null) {
@@ -71,6 +81,6 @@ if (!function_exists('calculerMoyenne20')) {
             }
             $total += (float) $notesParMatiere[$matiere];
         }
-        return round($total / diviseurPourExamen($codeExamen), 2);
+        return round($total / $diviseur, 2);
     }
 }

@@ -63,11 +63,12 @@ $diviseur = diviseurPourExamen($examenActif['code']);
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enregistrer_notes'])) {
     $notesPost = $_POST['notes'] ?? [];
     $absentsPost = $_POST['absent'] ?? [];
+    $dispensesPost = $_POST['dispense_eps'] ?? [];
 
     $stmtUpsert = $pdo->prepare("
-        INSERT INTO notes (candidat_id, examen_id, matiere, note, present, source)
-        VALUES (?, ?, ?, ?, ?, 'saisie')
-        ON DUPLICATE KEY UPDATE note = VALUES(note), present = VALUES(present), source = 'saisie'
+        INSERT INTO notes (candidat_id, examen_id, matiere, note, present, dispense, source)
+        VALUES (?, ?, ?, ?, ?, ?, 'saisie')
+        ON DUPLICATE KEY UPDATE note = VALUES(note), present = VALUES(present), dispense = VALUES(dispense), source = 'saisie'
     ");
 
     $nb = 0;
@@ -76,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enregistrer_notes']))
         if ($candidatId <= 0) continue;
 
         $estAbsent = isset($absentsPost[$candidatId]);
+        $estDispenseEPS = isset($dispensesPost[$candidatId]);
 
         foreach ($listeMatieres as $index => $matiere) {
             $valeurBrute = $notesParIndex[$index] ?? '';
@@ -83,7 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enregistrer_notes']))
             if ($note !== null) {
                 $note = max(0, min($matieres[$matiere], $note));
             }
-            $stmtUpsert->execute([$candidatId, $examenId, $matiere, $note, $estAbsent ? 0 : 1]);
+            $dispense = ($matiere === 'EPS' && $estDispenseEPS) ? 1 : 0;
+            $stmtUpsert->execute([$candidatId, $examenId, $matiere, $note, $estAbsent ? 0 : 1, $dispense]);
         }
         $nb++;
     }
@@ -214,10 +217,10 @@ $candidats = $stmt->fetchAll();
 // Notes déjà saisies pour cet examen, indexées par candidat puis par matière
 $notesExistantes = [];
 if ($candidats) {
-    $stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+    $stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present, dispense FROM notes WHERE examen_id = ?");
     $stmtNotes->execute([$examenId]);
     foreach ($stmtNotes->fetchAll() as $n) {
-        $notesExistantes[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+        $notesExistantes[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present'], 'dispense' => (int) $n['dispense']];
     }
 }
 
@@ -246,7 +249,8 @@ foreach ($candidats as $c) {
         $absents++;
         continue;
     }
-    $moyenne = calculerMoyenne20($notesParMatiere, $examenActif['code']);
+    $dispenseEPSC = (bool) ($notesCandidat['EPS']['dispense'] ?? false);
+    $moyenne = calculerMoyenne20($notesParMatiere, $examenActif['code'], $dispenseEPSC);
     if ($moyenne !== null) {
         $notesCompletes++;
         if ($moyenne >= SEUIL_ADMISSION_CEPE) {
@@ -325,6 +329,9 @@ include '../views/layouts/header.php';
         <?= htmlspecialchars($matiere) ?> /<?= $max ?> &nbsp;·&nbsp;
     <?php endforeach; ?>
     Total /<?= array_sum($matieres) ?> ÷ <?= $diviseur ?> = Moyenne /20
+    <?php if (!$estComposition): ?>
+        &nbsp;·&nbsp; <strong>Dispensé EPS</strong> : moyenne calculée sur les 4 autres matières (÷<?= DIVISEUR_COMPOSITION ?>), comme pour une composition.
+    <?php endif; ?>
 </div>
 
 <!-- Stats -->
@@ -341,7 +348,7 @@ include '../views/layouts/header.php';
 <?php foreach ($groupes as $nomEcole => $lignes): ?>
     <div class="card shadow-sm mb-3">
         <div class="card-header"><strong><?= htmlspecialchars($nomEcole) ?></strong> <span class="text-muted">(<?= count($lignes) ?>)</span></div>
-        <div class="card-body p-0 table-responsive">
+        <div class="card-body p-0 table-responsive resultats-scroll">
             <table class="table table-sm table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
@@ -353,6 +360,9 @@ include '../views/layouts/header.php';
                         <?php endforeach; ?>
                         <th style="width:80px">Moyenne /20</th>
                         <th class="text-center" style="width:80px">Absent</th>
+                        <?php if (!$estComposition): ?>
+                            <th class="text-center" style="width:100px">Dispensé EPS</th>
+                        <?php endif; ?>
                         <th>Résultat</th>
                     </tr>
                 </thead>
@@ -369,7 +379,8 @@ include '../views/layouts/header.php';
                             }
                             $notesParMatiere[$matiere] = $ligneNote['note'] ?? null;
                         }
-                        $moyenne = $estAbsentActuel ? null : calculerMoyenne20($notesParMatiere, $examenActif['code']);
+                        $dispenseEPSActuel = (bool) ($notesCandidat['EPS']['dispense'] ?? false);
+                        $moyenne = $estAbsentActuel ? null : calculerMoyenne20($notesParMatiere, $examenActif['code'], $dispenseEPSActuel);
                         $estAdmis = $moyenne !== null && $moyenne >= SEUIL_ADMISSION_CEPE;
                         ?>
                         <tr>
@@ -387,6 +398,11 @@ include '../views/layouts/header.php';
                             <td class="text-center">
                                 <input type="checkbox" class="case-absent" name="absent[<?= $c['id'] ?>]" value="1" <?= $estAbsentActuel ? 'checked' : '' ?> onchange="basculerAbsent(this)">
                             </td>
+                            <?php if (!$estComposition): ?>
+                                <td class="text-center">
+                                    <input type="checkbox" name="dispense_eps[<?= $c['id'] ?>]" value="1" <?= $dispenseEPSActuel ? 'checked' : '' ?> <?= $estAbsentActuel ? 'disabled' : '' ?> title="Dispensé de l'épreuve d'EPS : la moyenne est calculée sans cette note.">
+                                </td>
+                            <?php endif; ?>
                             <td>
                                 <?php if ($estAbsentActuel): ?>
                                     <span class="badge bg-secondary">Absent</span>
@@ -442,7 +458,96 @@ function basculerAbsent(caseAbsent) {
         champ.disabled = caseAbsent.checked;
         if (caseAbsent.checked) champ.value = '';
     });
+    var caseDispense = ligne.querySelector('input[name^="dispense_eps"]');
+    if (caseDispense) {
+        caseDispense.disabled = caseAbsent.checked;
+        if (caseAbsent.checked) caseDispense.checked = false;
+    }
 }
+</script>
+
+<!-- =========================================================
+     BARRE DE DÉFILEMENT HORIZONTALE FIXE
+     Les tableaux de notes (un par école) peuvent être trop larges pour
+     l'écran. Plutôt que de forcer l'utilisateur à redescendre jusqu'au bas
+     de CHAQUE tableau pour le décaler latéralement, cette barre reste
+     visible en bas de l'écran quelle que soit la ligne consultée, et
+     décale tous les tableaux en même temps (leurs colonnes sont
+     identiques). Elle ne s'affiche que si un tableau déborde réellement.
+========================================================== -->
+<div id="barreDefilementNotes" class="barre-defilement-notes">
+    <div id="barreDefilementNotesInterieur"></div>
+</div>
+
+<style>
+.barre-defilement-notes {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: var(--sidebar-width, 260px);
+    right: 0;
+    height: 14px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: #f1f3f5;
+    border-top: 1px solid #dee2e6;
+    z-index: 1030;
+}
+.barre-defilement-notes #barreDefilementNotesInterieur {
+    height: 1px;
+}
+body.a-barre-defilement-notes {
+    padding-bottom: 18px;
+}
+@media (max-width: 767px) {
+    .barre-defilement-notes { left: 0; }
+}
+</style>
+
+<script>
+(function () {
+    var barre = document.getElementById('barreDefilementNotes');
+    var interieur = document.getElementById('barreDefilementNotesInterieur');
+    var tableaux = Array.prototype.slice.call(document.querySelectorAll('.resultats-scroll'));
+
+    if (!tableaux.length) return;
+
+    var enSynchronisation = false;
+
+    function actualiser() {
+        var largeurMax = tableaux.reduce(function (max, t) {
+            return Math.max(max, t.scrollWidth);
+        }, 0);
+        var deborde = tableaux.some(function (t) { return t.scrollWidth > t.clientWidth + 1; });
+
+        interieur.style.width = largeurMax + 'px';
+        barre.style.display = deborde ? 'block' : 'none';
+        document.body.classList.toggle('a-barre-defilement-notes', deborde);
+    }
+
+    function synchroniserDepuis(source, valeur) {
+        if (enSynchronisation) return;
+        enSynchronisation = true;
+        if (barre !== source) barre.scrollLeft = valeur;
+        tableaux.forEach(function (t) {
+            if (t !== source) t.scrollLeft = valeur;
+        });
+        enSynchronisation = false;
+    }
+
+    barre.addEventListener('scroll', function () {
+        synchroniserDepuis(barre, barre.scrollLeft);
+    });
+
+    tableaux.forEach(function (t) {
+        t.addEventListener('scroll', function () {
+            synchroniserDepuis(t, t.scrollLeft);
+        });
+    });
+
+    actualiser();
+    window.addEventListener('resize', actualiser);
+})();
 </script>
 
 <?php include '../views/layouts/footer.php'; ?>

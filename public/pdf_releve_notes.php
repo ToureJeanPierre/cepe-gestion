@@ -59,10 +59,10 @@ $candidats = $stmt->fetchAll();
 
 // Notes déjà saisies pour cet examen
 $notesParCandidat = [];
-$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present, dispense FROM notes WHERE examen_id = ?");
 $stmtNotes->execute([$examenId]);
 foreach ($stmtNotes->fetchAll() as $n) {
-    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present'], 'dispense' => (int) $n['dispense']];
 }
 
 // Calcule notes/total/moyenne/résultat pour chaque candidat
@@ -75,12 +75,15 @@ foreach ($candidats as &$c) {
         if ($ln && (int) $ln['present'] === 0) $absent = true;
         $notesParMatiere[$matiere] = $ln['note'] ?? null;
     }
-    $moyenne = $absent ? null : calculerMoyenne20($notesParMatiere, $examen['code']);
+    $dispenseEPS = (bool) ($notesC['EPS']['dispense'] ?? false);
+    $moyenne = $absent ? null : calculerMoyenne20($notesParMatiere, $examen['code'], $dispenseEPS);
+    $notesPourTotal = $dispenseEPS ? array_diff_key($notesParMatiere, ['EPS' => null]) : $notesParMatiere;
     $total = null;
-    if (!$absent && !in_array(null, $notesParMatiere, true)) {
-        $total = array_sum($notesParMatiere);
+    if (!$absent && !in_array(null, $notesPourTotal, true)) {
+        $total = array_sum($notesPourTotal);
     }
     $c['_notes'] = $notesParMatiere;
+    $c['_dispense_eps'] = $dispenseEPS;
     $c['_absent'] = $absent;
     $c['_total'] = $total;
     $c['_moyenne'] = $moyenne;
@@ -160,7 +163,12 @@ function ligneNotes(array $c, array $listeMatieres): string
     $html = '';
     foreach ($listeMatieres as $matiere) {
         $val = $c['_notes'][$matiere] ?? null;
-        $html .= '<td class="col-note">' . ($val !== null ? htmlspecialchars($val) : ($c['_absent'] ? '-' : '')) . '</td>';
+        if ($val === null && $matiere === 'EPS' && !empty($c['_dispense_eps'])) {
+            $affichage = 'Disp.';
+        } else {
+            $affichage = $val !== null ? htmlspecialchars($val) : ($c['_absent'] ? '-' : '');
+        }
+        $html .= '<td class="col-note">' . $affichage . '</td>';
     }
     return $html;
 }

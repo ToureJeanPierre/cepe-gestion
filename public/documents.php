@@ -62,10 +62,10 @@ if ($examenId) {
         $candidatsStats = $stmt->fetchAll();
 
         $notesParCandidatStats = [];
-        $stmtNotesStats = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+        $stmtNotesStats = $pdo->prepare("SELECT candidat_id, matiere, note, present, dispense FROM notes WHERE examen_id = ?");
         $stmtNotesStats->execute([$examenId]);
         foreach ($stmtNotesStats->fetchAll() as $n) {
-            $notesParCandidatStats[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+            $notesParCandidatStats[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present'], 'dispense' => (int) $n['dispense']];
         }
 
         $parSecteurStats = ['Public' => ['total_notes' => 0, 'admis' => 0], 'Privé' => ['total_notes' => 0, 'admis' => 0]];
@@ -83,7 +83,8 @@ if ($examenId) {
             }
             if ($absent) continue;
 
-            $moyenneC = calculerMoyenne20($notesParMatiereC, $examenPourStats['code']);
+            $dispenseEPSC = (bool) ($notesC['EPS']['dispense'] ?? false);
+            $moyenneC = calculerMoyenne20($notesParMatiereC, $examenPourStats['code'], $dispenseEPSC);
             if ($moyenneC === null) continue;
 
             $parSecteurStats[$secteur]['total_notes']++;

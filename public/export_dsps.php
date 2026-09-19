@@ -57,10 +57,10 @@ $lignes = $stmt->fetchAll();
 
 // Notes par matière pour cet examen, indexées par candidat
 $notesParCandidat = [];
-$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present FROM notes WHERE examen_id = ?");
+$stmtNotes = $pdo->prepare("SELECT candidat_id, matiere, note, present, dispense FROM notes WHERE examen_id = ?");
 $stmtNotes->execute([$examenId]);
 foreach ($stmtNotes->fetchAll() as $n) {
-    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present']];
+    $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present'], 'dispense' => (int) $n['dispense']];
 }
 
 $spreadsheet = new Spreadsheet();
@@ -92,7 +92,8 @@ foreach ($lignes as $l) {
         $notesParMatiere[$matiere] = $ligneNote['note'] ?? null;
         $valeursMatieres[] = $ligneNote['note'] ?? '';
     }
-    $moyenne = $estAbsent ? null : calculerMoyenne20($notesParMatiere, $examen['code']);
+    $dispenseEPS = (bool) ($notesCandidat['EPS']['dispense'] ?? false);
+    $moyenne = $estAbsent ? null : calculerMoyenne20($notesParMatiere, $examen['code'], $dispenseEPS);
     $resultat = $estAbsent ? 'Absent' : ($moyenne === null ? '' : ($moyenne >= SEUIL_ADMISSION_CEPE ? 'Admis' : 'Refusé'));
 
     $ligne = array_merge(
