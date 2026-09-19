@@ -1278,6 +1278,8 @@ include '../views/layouts/header.php';
          MESSAGES
     ========================================================== -->
 
+    <div id="messages-plan">
+
     <?php if ($success): ?>
 
         <div class="alert alert-success alert-dismissible fade show">
@@ -1347,6 +1349,8 @@ include '../views/layouts/header.php';
         </div>
 
     <?php endif; ?>
+
+    </div>
 
 
     <!-- =========================================================
@@ -1571,7 +1575,7 @@ include '../views/layouts/header.php';
 
             ?>
 
-            <div class="card shadow-sm mb-4">
+            <div class="card shadow-sm mb-4" id="centre-card-<?= (int) $plan['centre_effectif_id'] ?>">
 
                 <!-- =================================================
                      EN-TÊTE DU CENTRE
@@ -1936,163 +1940,6 @@ include '../views/layouts/header.php';
 
                                         </tr>
 
-
-                                        <!-- =================================
-                                             MODAL MODIFICATION
-                                        ================================== -->
-
-                                        <div
-                                            class="modal fade"
-                                            id="modalModifier<?= (int) $salle['id'] ?>"
-                                            tabindex="-1"
-                                            aria-hidden="true"
-                                        >
-
-                                            <div class="modal-dialog">
-
-                                                <div class="modal-content">
-
-                                                    <form method="POST">
-
-                                                        <div class="modal-header">
-
-                                                            <h5 class="modal-title">
-
-                                                                Modifier Salle
-                                                                <?= (int)
-                                                                    $salle[
-                                                                        'numero_salle'
-                                                                    ] ?>
-
-                                                            </h5>
-
-                                                            <button
-                                                                type="button"
-                                                                class="btn-close"
-                                                                data-bs-dismiss="modal"
-                                                            ></button>
-
-                                                        </div>
-
-
-                                                        <div class="modal-body">
-
-                                                            <input
-                                                                type="hidden"
-                                                                name="examen_id"
-                                                                value="<?= $examenSelectionneId ?>"
-                                                            >
-
-                                                            <input
-                                                                type="hidden"
-                                                                name="plan_id"
-                                                                value="<?= (int) $salle['id'] ?>"
-                                                            >
-
-
-                                                            <div class="mb-3">
-
-                                                                <label class="form-label">
-
-                                                                    Effectif de la salle
-
-                                                                </label>
-
-                                                                <input
-                                                                    type="number"
-                                                                    name="effectif_salle"
-                                                                    class="form-control"
-                                                                    min="1"
-                                                                    value="<?= (int) $salle['effectif_retenu'] ?>"
-                                                                    required
-                                                                >
-
-                                                                <div class="form-text">
-
-                                                                    Tu peux dépasser
-                                                                    exceptionnellement
-                                                                    la règle de 30 candidats
-                                                                    si une décision officielle
-                                                                    le justifie.
-
-                                                                </div>
-
-                                                            </div>
-
-
-                                                            <div class="mb-3">
-
-                                                                <label class="form-label">
-
-                                                                    Commentaire / PV
-
-                                                                </label>
-
-                                                                <textarea
-                                                                    name="commentaire"
-                                                                    class="form-control"
-                                                                    rows="4"
-                                                                    placeholder="Exemple : Répartition exceptionnelle décidée par le conseil. PV n°..."
-                                                                ><?= htmlspecialchars(
-                                                                    $salle[
-                                                                        'commentaire'
-                                                                    ] ?? ''
-                                                                ) ?></textarea>
-
-                                                            </div>
-
-
-                                                            <div class="alert alert-warning mb-0">
-
-                                                                <i class="bi bi-exclamation-triangle"></i>
-
-                                                                Cette modification
-                                                                deviendra
-                                                                <strong>manuelle</strong>
-                                                                et ne sera plus
-                                                                écrasée par la
-                                                                génération automatique.
-
-                                                            </div>
-
-                                                        </div>
-
-
-                                                        <div class="modal-footer">
-
-                                                            <button
-                                                                type="button"
-                                                                class="btn btn-secondary"
-                                                                data-bs-dismiss="modal"
-                                                            >
-
-                                                                Annuler
-
-                                                            </button>
-
-
-                                                            <button
-                                                                type="submit"
-                                                                name="modifier_salle"
-                                                                class="btn btn-primary"
-                                                            >
-
-                                                                <i class="bi bi-save"></i>
-
-                                                                Enregistrer
-
-                                                            </button>
-
-                                                        </div>
-
-                                                    </form>
-
-                                                </div>
-
-                                            </div>
-
-                                        </div>
-
                                     <?php endforeach; ?>
 
                                 </tbody>
@@ -2163,6 +2010,172 @@ include '../views/layouts/header.php';
                             </table>
 
                         </div>
+
+
+                        <!-- =============================================
+                             MODALES DE MODIFICATION (une par salle)
+                             Rendues ICI, en dehors du tableau : un <div>
+                             placé à l'intérieur de <tbody> est invalide en
+                             HTML et le navigateur y supprime silencieusement
+                             le <form> qu'il contient (bouton "Enregistrer"
+                             alors sans effet).
+                        ============================================== -->
+
+                        <?php foreach ($plan['salles'] as $salle): ?>
+
+                            <div
+                                class="modal fade"
+                                id="modalModifier<?= (int) $salle['id'] ?>"
+                                tabindex="-1"
+                                aria-hidden="true"
+                            >
+
+                                <div class="modal-dialog">
+
+                                    <div class="modal-content">
+
+                                        <form method="POST">
+
+                                            <div class="modal-header">
+
+                                                <h5 class="modal-title">
+
+                                                    Modifier Salle
+                                                    <?= (int)
+                                                        $salle[
+                                                            'numero_salle'
+                                                        ] ?>
+
+                                                </h5>
+
+                                                <button
+                                                    type="button"
+                                                    class="btn-close"
+                                                    data-bs-dismiss="modal"
+                                                ></button>
+
+                                            </div>
+
+
+                                            <div class="modal-body">
+
+                                                <input
+                                                    type="hidden"
+                                                    name="examen_id"
+                                                    value="<?= $examenSelectionneId ?>"
+                                                >
+
+                                                <input
+                                                    type="hidden"
+                                                    name="plan_id"
+                                                    value="<?= (int) $salle['id'] ?>"
+                                                >
+
+
+                                                <div class="mb-3">
+
+                                                    <label class="form-label">
+
+                                                        Effectif de la salle
+
+                                                    </label>
+
+                                                    <input
+                                                        type="number"
+                                                        name="effectif_salle"
+                                                        class="form-control"
+                                                        min="1"
+                                                        value="<?= (int) $salle['effectif_retenu'] ?>"
+                                                        required
+                                                    >
+
+                                                    <div class="form-text">
+
+                                                        Tu peux dépasser
+                                                        exceptionnellement
+                                                        la règle de 30 candidats
+                                                        si une décision officielle
+                                                        le justifie.
+
+                                                    </div>
+
+                                                </div>
+
+
+                                                <div class="mb-3">
+
+                                                    <label class="form-label">
+
+                                                        Commentaire / PV
+
+                                                    </label>
+
+                                                    <textarea
+                                                        name="commentaire"
+                                                        class="form-control"
+                                                        rows="4"
+                                                        placeholder="Exemple : Répartition exceptionnelle décidée par le conseil. PV n°..."
+                                                    ><?= htmlspecialchars(
+                                                        $salle[
+                                                            'commentaire'
+                                                        ] ?? ''
+                                                    ) ?></textarea>
+
+                                                </div>
+
+
+                                                <div class="alert alert-warning mb-0">
+
+                                                    <i class="bi bi-exclamation-triangle"></i>
+
+                                                    Cette modification
+                                                    deviendra
+                                                    <strong>manuelle</strong>
+                                                    et ne sera plus
+                                                    écrasée par la
+                                                    génération automatique.
+
+                                                </div>
+
+                                            </div>
+
+
+                                            <div class="modal-footer">
+
+                                                <button
+                                                    type="button"
+                                                    class="btn btn-secondary"
+                                                    data-bs-dismiss="modal"
+                                                >
+
+                                                    Annuler
+
+                                                </button>
+
+
+                                                <button
+                                                    type="submit"
+                                                    name="modifier_salle"
+                                                    class="btn btn-primary"
+                                                >
+
+                                                    <i class="bi bi-save"></i>
+
+                                                    Enregistrer
+
+                                                </button>
+
+                                            </div>
+
+                                        </form>
+
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+                        <?php endforeach; ?>
 
 
                     <?php endif; ?>
@@ -2384,6 +2397,91 @@ include '../views/layouts/header.php';
     <?php endif; ?>
 
 </div>
+
+
+<script>
+// Les formulaires d'ajout/modification/suppression de salle et de génération
+// par centre restent de simples formulaires POST classiques côté serveur
+// (rien ne change si JS est désactivé). Ce script les intercepte pour éviter
+// le rechargement complet de la page (et le saut en haut de page qui en
+// résulte) : seule la carte du centre concerné, et la zone de messages, sont
+// remplacées par leur version fraîchement rendue par le serveur.
+document.addEventListener('submit', async function (evenement) {
+
+    if (evenement.defaultPrevented) {
+        return;
+    }
+
+    var formulaire = evenement.target;
+    var carte = formulaire.closest('[id^="centre-card-"]');
+
+    if (!carte) {
+        return;
+    }
+
+    evenement.preventDefault();
+
+    var donnees = new FormData(formulaire);
+    if (evenement.submitter && evenement.submitter.name) {
+        donnees.append(evenement.submitter.name, evenement.submitter.value || '1');
+    }
+
+    var modalOuvert = formulaire.closest('.modal');
+
+    var appliquerReponse = function (texteHtml) {
+        var docFrais = new DOMParser().parseFromString(texteHtml, 'text/html');
+        var carteFraiche = docFrais.getElementById(carte.id);
+        var messagesFrais = docFrais.getElementById('messages-plan');
+        var messagesActuels = document.getElementById('messages-plan');
+
+        if (!carteFraiche) {
+            // Réponse inattendue : on retombe sur un envoi classique plutôt
+            // que de laisser l'action sans effet visible.
+            formulaire.submit();
+            return;
+        }
+
+        carte.outerHTML = carteFraiche.outerHTML;
+
+        if (messagesFrais && messagesActuels) {
+            messagesActuels.outerHTML = messagesFrais.outerHTML;
+        }
+    };
+
+    try {
+        var reponse = await fetch(formulaire.action, {
+            method: 'POST',
+            body: donnees
+        });
+
+        if (!reponse.ok) {
+            throw new Error('HTTP ' + reponse.status);
+        }
+
+        var texte = await reponse.text();
+
+        if (modalOuvert && window.bootstrap) {
+            var instance = bootstrap.Modal.getInstance(modalOuvert);
+            if (instance) {
+                modalOuvert.addEventListener('hidden.bs.modal', function () {
+                    appliquerReponse(texte);
+                }, { once: true });
+                instance.hide();
+            } else {
+                appliquerReponse(texte);
+            }
+        } else {
+            appliquerReponse(texte);
+        }
+
+    } catch (erreur) {
+        // Souci réseau ou serveur : on retombe sur le comportement classique
+        // (rechargement complet) pour ne jamais bloquer l'utilisateur.
+        formulaire.submit();
+    }
+
+}, false);
+</script>
 
 
 <?php
