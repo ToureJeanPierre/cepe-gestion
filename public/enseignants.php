@@ -2,7 +2,70 @@
 session_start();
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/docx_helpers.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
+
+// ==========================================
+// IMPORT DIRECT DES FICHIERS WORD (.docx) ENVOYÉS PAR LES DIRECTEURS
+// ==========================================
+// Les directeurs reçoivent un modèle Word (pas Excel : impressions et
+// signature manuscrite plus faciles pour eux) et le renvoient souvent tel
+// quel, rempli à l'écran, par clé USB ou WhatsApp. Plutôt que d'exiger une
+// conversion manuelle en Excel, on lit directement le tableau Word.
+// Le bloc Surveillance/Correction/Secrétariat de ce modèle est un reliquat
+// de l'ancien suivi manuel des affectations : il n'est plus utilisé et est
+// ignoré ici (voir le module Affectations, qui calcule cela automatiquement).
+function deviverEmploiDepuisCorpsGrade(string $texte): ?string
+{
+    $texte = mb_strtoupper(trim($texte));
+    if ($texte === '') {
+        return null;
+    }
+    if (preg_match('/\bIA\b/u', $texte) || str_contains($texte, 'ADJOINT')) {
+        return 'IA';
+    }
+    if (preg_match('/\bIO\b/u', $texte) || str_contains($texte, 'ORDINAIRE')) {
+        return 'IO';
+    }
+    return null;
+}
+
+/**
+ * Reconstitue, à partir du tableau du modèle Word, des lignes compatibles
+ * avec l'ordre de colonnes de l'import Excel (Nom, Prénoms, Sexe, Téléphone,
+ * Identifiant, NiveauTenu, Emploi, Fonction, Disponibilité) — Sexe et
+ * Disponibilité n'existent pas sur la fiche Word et restent vides (valeurs
+ * par défaut déjà gérées plus loin dans l'import).
+ *
+ * @return array<int, array<int, string>>
+ */
+function mapperLignesDocxPersonnel(array $lignesDocx, string $typeEcole): array
+{
+    // Les 2 premières lignes du tableau Word sont les en-têtes (dont la
+    // sous-ligne 1erEB/2eEB/6e/3eouTle) : les données commencent à la ligne 2.
+    $donnees = array_slice($lignesDocx, 2);
+
+    $rows = [];
+    foreach ($donnees as $ligne) {
+        if ($typeEcole === 'Privé') {
+            // N°, NOM, PRENOMS, N°AUTORISATION, FONCTION, COURSTENU, CONTACT, ...
+            [$nom, $prenoms, $identifiant, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 6), 6, '');
+            $emploi = '';
+        } else {
+            // N°, NOM, PRENOMS, MATRICULE, CORPS&GRADE, FONCTION, COURSTENU, CONTACT, ...
+            [$nom, $prenoms, $identifiant, $corpsGrade, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 7), 7, '');
+            $emploi = deviverEmploiDepuisCorpsGrade($corpsGrade) ?? '';
+        }
+
+        if (trim($nom) === '') {
+            continue; // ligne vide du modèle, non remplie par le directeur
+        }
+
+        $rows[] = [$nom, $prenoms, '', $contact, $identifiant, $coursTenu, $emploi, $fonction, ''];
+    }
+
+    return $rows;
+}
 
 $pageTitle = 'Gestion du Personnel';
 
@@ -36,9 +99,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                 $typeEcoleImport = $stmtTypeEcole->fetchColumn() ?: 'Public';
             }
 
-            $spreadsheet = IOFactory::load($_FILES['fichier_personnel']['tmp_name']);
-            $rows = $spreadsheet->getActiveSheet()->toArray();
-            array_shift($rows); // Saute l'en-tête
+            $nomFichier = $_FILES['fichier_personnel']['name'];
+            $extension = strtolower(pathinfo($nomFichier, PATHINFO_EXTENSION));
+
+            if ($extension === 'docx') {
+                // Fichier Word envoyé tel quel par le directeur (modèle
+                // officiel de liste des enseignants) : lu directement, sans
+                // conversion préalable en Excel.
+                $lignesDocx = extraireTableauDocx($_FILES['fichier_personnel']['tmp_name']);
+                $rows = mapperLignesDocxPersonnel($lignesDocx, $typeEcoleImport);
+            } else {
+                $spreadsheet = IOFactory::load($_FILES['fichier_personnel']['tmp_name']);
+                $rows = $spreadsheet->getActiveSheet()->toArray();
+                array_shift($rows); // Saute l'en-tête
+            }
 
             $nbAjouts = 0;
             $nbMajs = 0;
@@ -502,7 +576,12 @@ include '../views/layouts/header.php';
                         Le grade des enseignants du Public est déduit automatiquement de l'emploi (IO → B3, IA → C3).
                         Sous-type, grade (Privé), diplôme et niveau d'étude ne sont plus demandés à l'import — modifiables ensuite au cas par cas via "Modifier".
                     </p>
-                    <input type="file" name="fichier_personnel" class="form-control" accept=".xlsx,.xls" required>
+                    <p class="small text-muted">
+                        <i class="bi bi-file-earmark-word"></i>
+                        Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste des enseignants" — est accepté tel quel, sans conversion en Excel.
+                        Sexe et Disponibilité n'y figurant pas, ils prennent leur valeur par défaut (M / En activité) et restent modifiables ensuite au cas par cas.
+                    </p>
+                    <input type="file" name="fichier_personnel" class="form-control" accept=".xlsx,.xls,.docx" required>
                 </div>
                 <div class="modal-footer">
                     <a href="enseignants.php" class="btn btn-secondary">Annuler</a>
