@@ -75,6 +75,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ? (int) $_POST['examen_id']
         : 0;
 
+    // Génération ciblée sur un seul centre (bouton par centre) : si absent,
+    // la génération porte sur tous les centres de l'examen (bouton global).
+    $centreEffectifIdCible = isset($_POST['centre_effectif_id'])
+        ? (int) $_POST['centre_effectif_id']
+        : 0;
+
+    // Autorise explicitement (case cochée / confirmation cliquée) à écraser
+    // une répartition manuelle existante, au lieu de l'ignorer silencieusement.
+    $ecraserManuel = isset($_POST['ecraser_manuel']) && $_POST['ecraser_manuel'] == '1';
+
 
     /*
     |--------------------------------------------------------------------------
@@ -132,14 +142,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         WHERE ce.examen_id = ?
                           AND c.annee_id = ?
+                          " . ($centreEffectifIdCible > 0 ? "AND ce.id = ?" : "") . "
 
                         ORDER BY e.nom ASC
                     ");
 
-                    $stmt->execute([
+                    $paramsEffectifs = [
                         $examenIdPost,
                         $anneeId
-                    ]);
+                    ];
+
+                    if ($centreEffectifIdCible > 0) {
+                        $paramsEffectifs[] = $centreEffectifIdCible;
+                    }
+
+                    $stmt->execute($paramsEffectifs);
 
                     $centresEffectifs = $stmt->fetchAll();
 
@@ -230,14 +247,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         |--------------------------------------------------------------------------
                         */
 
-                        if ($aDesSallesManuelles) {
+                        if ($aDesSallesManuelles && !$ecraserManuel) {
 
                             $avertissements[] =
                                 $centre['nom_centre']
                                 . " : une répartition manuelle existe déjà. "
-                                . "Elle n'a pas été modifiée.";
+                                . "Elle n'a pas été modifiée (cochez « écraser les répartitions "
+                                . "manuelles » ou utilisez le bouton du centre pour la remplacer).";
 
                             continue;
+                        }
+
+                        // Écrasement explicitement demandé : supprime aussi les salles
+                        // manuelles de CE centre pour repartir sur une base propre.
+                        if ($aDesSallesManuelles && $ecraserManuel) {
+
+                            $pdo->prepare("
+                                DELETE FROM plan_salles
+                                WHERE centre_effectif_id = ?
+                                  AND est_manuel = 1
+                            ")->execute([$centreEffectifId]);
                         }
 
 
@@ -259,33 +288,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         |--------------------------------------------------------------------------
                         | VÉRIFICATION DE LA CONTRAINTE MINIMUM DE 25
                         |--------------------------------------------------------------------------
+                        |
+                        | Si la répartition à 30 maximum tombe sous le minimum de 25 par salle,
+                        | on essaie un repli avec MOINS de salles en tolérant jusqu'à 31 par
+                        | salle (dépassement exceptionnel) plutôt que d'abandonner directement —
+                        | ce dépassement est ensuite signalé en rouge dans le tableau, avec un
+                        | commentaire, pour que la répartition reste visible et modifiable
+                        | manuellement si besoin.
+                        |--------------------------------------------------------------------------
                         */
 
                         if ($effectif < ($nombreSalles * 25)) {
 
-                            $nombreProblemes++;
+                            $nombreSallesRepli =
+                                (int) ceil($effectif / 31);
 
-                            $avertissements[] =
-                                $centre['nom_centre']
-                                . " : "
-                                . $effectif
-                                . " candidats. "
-                                . "Aucune répartition normale entre 25 et 30 "
-                                . "n'est possible avec le nombre minimal de salles. "
-                                . "Une décision manuelle est nécessaire.";
+                            if (
+                                $nombreSallesRepli < $nombreSalles
+                                && $effectif >= ($nombreSallesRepli * 25)
+                            ) {
+
+                                $nombreSalles = $nombreSallesRepli;
+
+                            } else {
+
+                                $nombreProblemes++;
+
+                                $avertissements[] =
+                                    $centre['nom_centre']
+                                    . " : "
+                                    . $effectif
+                                    . " candidats. "
+                                    . "Aucune répartition normale entre 25 et 30 "
+                                    . "(ni même 31 en dépassement exceptionnel) "
+                                    . "n'est possible avec le nombre minimal de salles. "
+                                    . "Une décision manuelle est nécessaire.";
 
 
-                            $stmtDelete = $pdo->prepare("
-                                DELETE FROM plan_salles
-                                WHERE centre_effectif_id = ?
-                                  AND est_manuel = 0
-                            ");
+                                $stmtDelete = $pdo->prepare("
+                                    DELETE FROM plan_salles
+                                    WHERE centre_effectif_id = ?
+                                      AND est_manuel = 0
+                                ");
 
-                            $stmtDelete->execute([
-                                $centreEffectifId
-                            ]);
+                                $stmtDelete->execute([
+                                    $centreEffectifId
+                                ]);
 
-                            continue;
+                                continue;
+                            }
                         }
 
 
@@ -345,10 +396,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 ?,
                                 ?,
                                 0,
-                                NULL
+                                ?
                             )
                         ");
 
+                        $auMoinsUneSalleForcee = false;
 
                         for (
                             $numeroSalle = 1;
@@ -364,13 +416,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         : 0
                                 );
 
+                            $commentaireSalle = null;
+                            if ($effectifSalle > 30) {
+                                $commentaireSalle =
+                                    "Effectif porté à $effectifSalle : dépassement "
+                                    . "exceptionnel du maximum normal de 30, nécessaire "
+                                    . "pour éviter une salle sous le minimum de 25.";
+                                $auMoinsUneSalleForcee = true;
+                            }
 
                             $stmtInsert->execute([
                                 $centreEffectifId,
                                 $numeroSalle,
                                 $effectifSalle,
-                                $effectifSalle
+                                $effectifSalle,
+                                $commentaireSalle
                             ]);
+                        }
+
+                        if ($auMoinsUneSalleForcee) {
+                            $avertissements[] =
+                                $centre['nom_centre']
+                                . " : répartition générée avec au moins une salle "
+                                . "portée à 31 (dépassement exceptionnel, signalé en "
+                                . "rouge) — vérifiez et ajustez manuellement si besoin.";
                         }
 
 
@@ -1366,6 +1435,28 @@ include '../views/layouts/header.php';
 
                 </div>
 
+
+                <div class="col-12">
+
+                    <div class="form-check">
+
+                        <input
+                            type="checkbox"
+                            class="form-check-input"
+                            id="ecraserManuelGlobal"
+                            name="ecraser_manuel"
+                            value="1"
+                            onchange="if (this.checked) { this.checked = confirm('Ceci va aussi écraser les répartitions manuelles existantes, pour tous les centres de cet examen. Continuer ?'); }"
+                        >
+
+                        <label class="form-check-label" for="ecraserManuelGlobal">
+                            Écraser aussi les répartitions manuelles existantes (sinon elles sont conservées telles quelles)
+                        </label>
+
+                    </div>
+
+                </div>
+
             </form>
 
             <?php if ($examenSelectionneId): ?>
@@ -1422,7 +1513,15 @@ include '../views/layouts/header.php';
             </li>
 
             <li>
-                Les situations impossibles sont signalées
+                Si aucune répartition entre 25 et 30 n'est possible avec le nombre
+                minimal de salles, l'application essaie avec moins de salles en
+                tolérant <strong class="text-danger">exceptionnellement jusqu'à 31</strong>
+                par salle — ces salles sont alors signalées en rouge, avec un
+                commentaire, pour permettre une correction manuelle si besoin.
+            </li>
+
+            <li>
+                Les situations impossibles (même avec 31) sont signalées
                 pour permettre une décision manuelle.
             </li>
 
@@ -1461,6 +1560,14 @@ include '../views/layouts/header.php';
 
             $difference =
                 $totalCandidats - $effectifCentre;
+
+            $centreARepartitionManuelle = false;
+            foreach ($plan['salles'] as $salle) {
+                if ($salle['est_manuel']) {
+                    $centreARepartitionManuelle = true;
+                    break;
+                }
+            }
 
             ?>
 
@@ -1520,6 +1627,29 @@ include '../views/layouts/header.php';
                                 </span>
 
                             <?php endif; ?>
+
+
+                            <form method="POST" class="d-inline">
+
+                                <input type="hidden" name="examen_id" value="<?= (int) $examenSelectionneId ?>">
+                                <input type="hidden" name="centre_effectif_id" value="<?= (int) $plan['centre_effectif_id'] ?>">
+                                <?php if ($centreARepartitionManuelle): ?>
+                                    <input type="hidden" name="ecraser_manuel" value="1">
+                                <?php endif; ?>
+
+                                <button
+                                    type="submit"
+                                    name="generer_plan"
+                                    class="btn btn-outline-primary btn-sm"
+                                    <?php if ($centreARepartitionManuelle): ?>
+                                        onclick="return confirm('Ce centre a une répartition manuelle existante. Voulez-vous l\'écraser et régénérer automatiquement ?');"
+                                    <?php endif; ?>
+                                >
+                                    <i class="bi bi-magic"></i>
+                                    Générer ce centre
+                                </button>
+
+                            </form>
 
                         </div>
 
@@ -1650,16 +1780,25 @@ include '../views/layouts/header.php';
                                                 <span
                                                     class="badge fs-6
                                                     <?= (
-                                                        $salle['est_manuel']
-                                                            ? 'bg-warning text-dark'
-                                                            : 'bg-primary'
+                                                        $salle['effectif_retenu'] > 30
+                                                            ? 'bg-danger'
+                                                            : ($salle['est_manuel']
+                                                                ? 'bg-warning text-dark'
+                                                                : 'bg-primary')
                                                     ) ?>"
+                                                    <?= $salle['effectif_retenu'] > 30
+                                                        ? 'title="Dépassement exceptionnel du maximum normal de 30"'
+                                                        : '' ?>
                                                 >
 
                                                     <?= (int)
                                                         $salle[
                                                             'effectif_retenu'
                                                         ] ?>
+
+                                                    <?= $salle['effectif_retenu'] > 30
+                                                        ? ' <i class="bi bi-exclamation-triangle-fill"></i>'
+                                                        : '' ?>
 
                                                 </span>
 
