@@ -350,20 +350,26 @@ include '../views/layouts/header.php';
         <div class="card-header"><strong><?= htmlspecialchars($nomEcole) ?></strong> <span class="text-muted">(<?= count($lignes) ?>)</span></div>
         <div class="card-body p-0 table-responsive resultats-scroll">
             <table class="table table-sm table-hover align-middle mb-0">
+                <?php
+                // Intitulés raccourcis pour tenir sur des écrans de laptop standards
+                // (le nom complet reste en info-bulle) — seule "Exploitation de texte"
+                // est notablement plus longue que les autres matières.
+                $libellesCourtsMatieres = ['Exploitation de texte' => 'Exploitation'];
+                ?>
                 <thead class="table-light">
                     <tr>
                         <th>Nom</th>
                         <th>Prénoms</th>
-                        <th>Matricule</th>
+                        <th style="width:85px;">Matricule</th>
                         <?php foreach ($matieres as $matiere => $max): ?>
-                            <th style="min-width:150px; font-size:11px; line-height:1.3; white-space:nowrap;"><?= htmlspecialchars($matiere) ?> <small class="text-muted">/<?= $max ?></small></th>
+                            <th style="min-width:100px; font-size:10px; line-height:1.2; white-space:nowrap; padding-left:6px; padding-right:6px;" title="<?= htmlspecialchars($matiere) ?>"><?= htmlspecialchars($libellesCourtsMatieres[$matiere] ?? $matiere) ?> <small class="text-muted">/<?= $max ?></small></th>
                         <?php endforeach; ?>
-                        <th style="width:80px">Moyenne /20</th>
-                        <th class="text-center" style="width:80px">Absent</th>
+                        <th style="width:60px">Moyenne /20</th>
+                        <th class="text-center" style="width:55px">Absent</th>
                         <?php if (!$estComposition): ?>
-                            <th class="text-center" style="width:100px">Dispensé EPS</th>
+                            <th class="text-center" style="width:80px; font-size:11px;">Dispensé EPS</th>
                         <?php endif; ?>
-                        <th>Résultat</th>
+                        <th style="width:75px">Résultat</th>
                     </tr>
                 </thead>
                 <tbody>
