@@ -7,12 +7,19 @@ header('Content-Type: application/json');
 $action = $_POST['action'] ?? '';
 $idsRaw = $_POST['ids'] ?? '';
 $ids = array_values(array_filter(array_map('intval', explode(',', $idsRaw))));
+$centreId = !empty($_POST['centre_id']) ? (int) $_POST['centre_id'] : null;
 
-$actionsAutorisees = ['matricule_on', 'matricule_off', 'droits_on', 'droits_off', 'supprimer'];
+$actionsAutorisees = ['matricule_on', 'matricule_off', 'droits_on', 'droits_off', 'supprimer', 'affecter_centre'];
 
 if (empty($ids) || !in_array($action, $actionsAutorisees, true)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Paramètres invalides.']);
+    exit;
+}
+
+if ($action === 'affecter_centre' && !$centreId) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'Centre non spécifié.']);
     exit;
 }
 
@@ -53,6 +60,12 @@ try {
             break;
         case 'supprimer':
             $pdo->prepare("DELETE FROM candidats WHERE id IN ($placeholders)")->execute($ids);
+            break;
+        case 'affecter_centre':
+            // Ne touche que les candidats réellement libres parmi la sélection —
+            // un candidat rattaché à une école n'a pas de centre_examen_id.
+            $pdo->prepare("UPDATE candidats SET centre_examen_id = ? WHERE id IN ($placeholders) AND est_candidat_libre = 1")
+                ->execute(array_merge([$centreId], $ids));
             break;
     }
     echo json_encode(['success' => true, 'nb' => count($ids)]);

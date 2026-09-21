@@ -232,7 +232,9 @@ $filtreRecherche = $_GET['q'] ?? '';
 $sql = "SELECT c.*, e.nom as nom_ecole, (c.matricule_verifie = 1 AND c.droits_payes = 1) as est_valide FROM candidats c LEFT JOIN ecoles e ON c.ecole_id = e.id WHERE c.annee_id = ?";
 $params = [$anneeId];
 
-if ($filtreEcole) {
+if ($filtreEcole === 'libres') {
+    $sql .= " AND c.est_candidat_libre = 1";
+} elseif ($filtreEcole) {
     $sql .= " AND c.ecole_id = ?";
     $params[] = $filtreEcole;
 }
@@ -282,7 +284,9 @@ $totalGeneralBase = (int) $stmtTotalGeneral->fetchColumn();
 // Filtre actif ? et nom de l'école filtrée (pour affichage du bandeau)
 $filtreActif = $filtreEcole || $filtreStatut || $filtreValidation || $filtreRecherche;
 $nomEcoleFiltre = null;
-if ($filtreEcole) {
+if ($filtreEcole === 'libres') {
+    $nomEcoleFiltre = 'Candidats Libres';
+} elseif ($filtreEcole) {
     $stmtNomE = $pdo->prepare("SELECT nom FROM ecoles WHERE id = ?");
     $stmtNomE->execute([$filtreEcole]);
     $nomEcoleFiltre = $stmtNomE->fetchColumn();
@@ -403,6 +407,7 @@ include '../views/layouts/header.php';
         <label class="form-label">Filtrer par École</label>
         <select name="ecole_id" class="form-select" onchange="this.form.submit()">
             <option value="">Toutes les écoles</option>
+            <option value="libres" <?= $filtreEcole === 'libres' ? 'selected' : '' ?>>— Candidats Libres —</option>
             <?php foreach($ecoles as $e): ?>
                 <option value="<?= $e['id'] ?>" <?= $filtreEcole==$e['id']?'selected':'' ?>><?= htmlspecialchars($e['nom']) ?></option>
             <?php endforeach; ?>
@@ -446,7 +451,16 @@ include '../views/layouts/header.php';
 <!-- Barre d'actions en masse (apparaît dès qu'au moins 1 candidat est sélectionné) -->
 <div class="alert alert-primary d-none align-items-center justify-content-between py-2 mb-3" id="barreActionsMasse">
     <span><strong id="nbSelectionnes">0</strong> candidat(s) sélectionné(s)</span>
-    <div>
+    <div class="d-flex align-items-center gap-2">
+        <?php if ($filtreEcole === 'libres'): ?>
+            <select id="selectCentreMasse" class="form-select form-select-sm" style="width:auto;">
+                <option value="">— Choisir un centre —</option>
+                <?php foreach ($centres as $centre): ?>
+                    <option value="<?= $centre['id'] ?>"><?= htmlspecialchars($centre['nom']) ?></option>
+                <?php endforeach; ?>
+            </select>
+            <button type="button" class="btn btn-sm btn-primary" onclick="affecterCentreMasse()"><i class="bi bi-geo-alt"></i> Affecter au centre</button>
+        <?php endif; ?>
         <button type="button" class="btn btn-sm btn-success" onclick="actionMasseCandidats('matricule_on')"><i class="bi bi-check-square"></i> Vérifier matricule</button>
         <button type="button" class="btn btn-sm btn-success" onclick="actionMasseCandidats('droits_on')"><i class="bi bi-check-square"></i> Valider droits payés</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="actionMasseCandidats('matricule_off')">Annuler vérif.</button>
@@ -466,6 +480,7 @@ include '../views/layouts/header.php';
                     <th>Prénoms</th>
                     <th>Sexe</th>
                     <th>École / Statut</th>
+                    <th>Centre d'examen (libres)</th>
                     <th>Naissance</th>
                     <th>Matricule DSPS</th>
                     <th>Acte Naiss.</th>
@@ -491,6 +506,18 @@ include '../views/layouts/header.php';
                             <small class="text-muted">Indépendant</small>
                         <?php else: ?>
                             <?= htmlspecialchars($c['nom_ecole'] ?? 'Inconnu') ?>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if($c['est_candidat_libre']): ?>
+                            <select class="form-select form-select-sm select-centre-libre" data-candidat-id="<?= $c['id'] ?>" style="min-width:170px;">
+                                <option value="">— Aucun —</option>
+                                <?php foreach($centres as $centre): ?>
+                                    <option value="<?= $centre['id'] ?>" <?= (int)($c['centre_examen_id'] ?? 0) === (int)$centre['id'] ? 'selected' : '' ?>><?= htmlspecialchars($centre['nom']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        <?php else: ?>
+                            <span class="text-muted">—</span>
                         <?php endif; ?>
                     </td>
                     <td><?= $c['date_naissance'] ? date('d/m/Y', strtotime($c['date_naissance'])) : '-' ?></td>
@@ -637,6 +664,31 @@ include '../views/layouts/header.php';
 </div>
 
 <script>
+// Affectation du centre d'examen d'un candidat libre, directement depuis la liste
+document.addEventListener('change', async function (evenement) {
+    var select = evenement.target;
+    if (!select.classList || !select.classList.contains('select-centre-libre')) {
+        return;
+    }
+
+    var id = select.dataset.candidatId;
+    var centreId = select.value;
+
+    try {
+        var reponse = await fetch('api_affecter_centre_candidat.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'id=' + encodeURIComponent(id) + '&centre_id=' + encodeURIComponent(centreId)
+        });
+        var donnees = await reponse.json();
+        if (!donnees.success) {
+            alert('Erreur : ' + (donnees.error || 'inconnue'));
+        }
+    } catch (erreur) {
+        alert("Erreur réseau : le centre n'a pas pu être enregistré.");
+    }
+});
+
 function toggleEcoleSelect() {
     const isLibre = document.getElementById('checkLibre').checked;
     document.getElementById('inputLibre').value = isLibre ? '1' : '0';
@@ -700,6 +752,32 @@ function majBarreActionsCandidats() {
     document.getElementById('nbSelectionnes').textContent = coches.length;
     barre.classList.toggle('d-none', coches.length === 0);
     barre.classList.toggle('d-flex', coches.length > 0);
+}
+
+async function affecterCentreMasse() {
+    var ids = Array.from(document.querySelectorAll('.check-candidat:checked')).map(function (c) { return c.value; });
+    var centreId = document.getElementById('selectCentreMasse').value;
+    if (ids.length === 0) return;
+    if (!centreId) {
+        alert('Choisissez un centre avant de valider.');
+        return;
+    }
+
+    try {
+        var reponse = await fetch('api_bulk_candidats.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'action=affecter_centre&ids=' + ids.join(',') + '&centre_id=' + encodeURIComponent(centreId)
+        });
+        var data = await reponse.json();
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Erreur : ' + (data.error || 'inconnue'));
+        }
+    } catch (e) {
+        alert('Erreur réseau : impossible d\'effectuer cette action.');
+    }
 }
 
 async function actionMasseCandidats(action) {
