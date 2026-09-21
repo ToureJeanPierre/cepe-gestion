@@ -349,7 +349,7 @@ include '../views/layouts/header.php';
     <div class="card shadow-sm mb-3">
         <div class="card-header"><strong><?= htmlspecialchars($nomEcole) ?></strong> <span class="text-muted">(<?= count($lignes) ?>)</span></div>
         <div class="card-body p-0 table-responsive tableau-scrollable">
-            <table class="table table-sm table-hover align-middle mb-0">
+            <table class="table table-sm table-hover align-middle mb-0" style="table-layout: fixed;">
                 <?php
                 // Intitulés raccourcis pour tenir sur des écrans de laptop standards
                 // (le nom complet reste en info-bulle) — seule "Exploitation de texte"
@@ -358,11 +358,11 @@ include '../views/layouts/header.php';
                 ?>
                 <thead class="table-light">
                     <tr>
-                        <th>Nom</th>
-                        <th>Prénoms</th>
-                        <th style="width:85px;">Matricule</th>
+                        <th style="width:110px;">Nom</th>
+                        <th style="width:130px;">Prénoms</th>
+                        <th style="width:90px;">Matricule</th>
                         <?php foreach ($matieres as $matiere => $max): ?>
-                            <th style="min-width:100px; font-size:10px; line-height:1.2; white-space:nowrap; padding-left:6px; padding-right:6px;" title="<?= htmlspecialchars($matiere) ?>"><?= htmlspecialchars($libellesCourtsMatieres[$matiere] ?? $matiere) ?> <small class="text-muted">/<?= $max ?></small></th>
+                            <th style="width:115px; font-size:10px; line-height:1.2; white-space:nowrap; padding-left:6px; padding-right:6px; overflow:hidden;" title="<?= htmlspecialchars($matiere) ?>"><?= htmlspecialchars($libellesCourtsMatieres[$matiere] ?? $matiere) ?> <small class="text-muted">/<?= $max ?></small></th>
                         <?php endforeach; ?>
                         <th style="width:60px">Moyenne /20</th>
                         <th class="text-center" style="width:55px">Absent</th>

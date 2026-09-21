@@ -195,6 +195,19 @@ body.a-barre-defilement-globale {
 
     actualiser();
     window.addEventListener('resize', actualiser);
+
+    // Filet de sécurité : une mesure prise avant que la page ait fini de se
+    // stabiliser (polices web, images...) peut afficher la barre à tort et
+    // ne jamais se corriger ensuite (rien ne redéclenche actualiser() sans
+    // redimensionnement). ResizeObserver réagit à tout changement réel de
+    // taille des tableaux eux-mêmes, quelle qu'en soit la cause.
+    if (window.ResizeObserver) {
+        var observateur = new ResizeObserver(actualiser);
+        tableaux.forEach(function (t) { observateur.observe(t); });
+    }
+    if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(actualiser);
+    }
 })();
 </script>
 
