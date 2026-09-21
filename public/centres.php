@@ -1958,6 +1958,7 @@ include '../views/layouts/header.php';
 
                     <table
                         class="table table-striped table-hover align-middle mb-0"
+                        style="table-layout: fixed;"
                     >
 
 
@@ -1969,11 +1970,11 @@ include '../views/layouts/header.php';
                                     École composante
                                 </th>
 
-                                <th>
+                                <th style="width: 170px;">
                                     Code DSPS
                                 </th>
 
-                                <th class="text-center">
+                                <th class="text-center" style="width: 130px;">
                                     Action
                                 </th>
 
