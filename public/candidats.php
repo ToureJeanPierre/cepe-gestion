@@ -457,7 +457,7 @@ include '../views/layouts/header.php';
 
 <!-- Tableau -->
 <div class="card shadow-sm">
-    <div class="card-body p-0 table-responsive">
+    <div class="card-body p-0 table-responsive tableau-scrollable">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
                 <tr>

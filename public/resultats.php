@@ -348,7 +348,7 @@ include '../views/layouts/header.php';
 <?php foreach ($groupes as $nomEcole => $lignes): ?>
     <div class="card shadow-sm mb-3">
         <div class="card-header"><strong><?= htmlspecialchars($nomEcole) ?></strong> <span class="text-muted">(<?= count($lignes) ?>)</span></div>
-        <div class="card-body p-0 table-responsive resultats-scroll">
+        <div class="card-body p-0 table-responsive tableau-scrollable">
             <table class="table table-sm table-hover align-middle mb-0">
                 <?php
                 // Intitulés raccourcis pour tenir sur des écrans de laptop standards
@@ -470,90 +470,6 @@ function basculerAbsent(caseAbsent) {
         if (caseAbsent.checked) caseDispense.checked = false;
     }
 }
-</script>
-
-<!-- =========================================================
-     BARRE DE DÉFILEMENT HORIZONTALE FIXE
-     Les tableaux de notes (un par école) peuvent être trop larges pour
-     l'écran. Plutôt que de forcer l'utilisateur à redescendre jusqu'au bas
-     de CHAQUE tableau pour le décaler latéralement, cette barre reste
-     visible en bas de l'écran quelle que soit la ligne consultée, et
-     décale tous les tableaux en même temps (leurs colonnes sont
-     identiques). Elle ne s'affiche que si un tableau déborde réellement.
-========================================================== -->
-<div id="barreDefilementNotes" class="barre-defilement-notes">
-    <div id="barreDefilementNotesInterieur"></div>
-</div>
-
-<style>
-.barre-defilement-notes {
-    display: none;
-    position: fixed;
-    bottom: 0;
-    left: var(--sidebar-width, 260px);
-    right: 0;
-    height: 14px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    background: #f1f3f5;
-    border-top: 1px solid #dee2e6;
-    z-index: 1030;
-}
-.barre-defilement-notes #barreDefilementNotesInterieur {
-    height: 1px;
-}
-body.a-barre-defilement-notes {
-    padding-bottom: 18px;
-}
-@media (max-width: 767px) {
-    .barre-defilement-notes { left: 0; }
-}
-</style>
-
-<script>
-(function () {
-    var barre = document.getElementById('barreDefilementNotes');
-    var interieur = document.getElementById('barreDefilementNotesInterieur');
-    var tableaux = Array.prototype.slice.call(document.querySelectorAll('.resultats-scroll'));
-
-    if (!tableaux.length) return;
-
-    var enSynchronisation = false;
-
-    function actualiser() {
-        var largeurMax = tableaux.reduce(function (max, t) {
-            return Math.max(max, t.scrollWidth);
-        }, 0);
-        var deborde = tableaux.some(function (t) { return t.scrollWidth > t.clientWidth + 1; });
-
-        interieur.style.width = largeurMax + 'px';
-        barre.style.display = deborde ? 'block' : 'none';
-        document.body.classList.toggle('a-barre-defilement-notes', deborde);
-    }
-
-    function synchroniserDepuis(source, valeur) {
-        if (enSynchronisation) return;
-        enSynchronisation = true;
-        if (barre !== source) barre.scrollLeft = valeur;
-        tableaux.forEach(function (t) {
-            if (t !== source) t.scrollLeft = valeur;
-        });
-        enSynchronisation = false;
-    }
-
-    barre.addEventListener('scroll', function () {
-        synchroniserDepuis(barre, barre.scrollLeft);
-    });
-
-    tableaux.forEach(function (t) {
-        t.addEventListener('scroll', function () {
-            synchroniserDepuis(t, t.scrollLeft);
-        });
-    });
-
-    actualiser();
-    window.addEventListener('resize', actualiser);
-})();
 </script>
 
 <?php include '../views/layouts/footer.php'; ?>

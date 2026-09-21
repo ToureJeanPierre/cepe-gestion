@@ -457,7 +457,7 @@ include '../views/layouts/header.php';
                 <div class="col-md-8">
                     <label class="form-label small text-muted">Surveillants / Suppléants (<?= $compteSurveillance ?>)</label>
                     <div class="table-responsive" style="max-height: 260px; overflow-y:auto;">
-                        <table class="table table-sm table-striped mb-0">
+                        <table class="table table-sm table-striped align-middle mb-0">
                             <thead>
                                 <tr><th>Nom</th><th>École</th><th>Niveau</th><th>Rôle</th><th>Origine</th><th></th></tr>
                             </thead>

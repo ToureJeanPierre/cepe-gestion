@@ -1497,7 +1497,7 @@ include '../views/layouts/header.php';
             <div class="table-responsive">
 
 
-                <table class="table table-sm table-hover mb-0">
+                <table class="table table-sm table-hover align-middle mb-0">
 
 
                     <thead>
@@ -1953,11 +1953,11 @@ include '../views/layouts/header.php';
             <div class="card-body p-0">
 
 
-                <div class="table-responsive">
+                <div class="table-responsive tableau-scrollable">
 
 
                     <table
-                        class="table table-striped table-hover mb-0"
+                        class="table table-striped table-hover align-middle mb-0"
                     >
 
 
