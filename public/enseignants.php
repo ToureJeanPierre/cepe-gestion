@@ -31,11 +31,22 @@ function deviverEmploiDepuisCorpsGrade(string $texte): ?string
 }
 
 /**
+ * Normalise une valeur "Sexe" telle que tapée librement par un directeur
+ * (F, f, Féminin, M, Masculin...) vers M/F — chaîne vide si non reconnu,
+ * pour laisser la valeur par défaut (M) déjà gérée par l'import s'appliquer.
+ */
+function normaliserSexeDocx(string $texte): string
+{
+    $lettre = strtoupper(mb_substr(trim($texte), 0, 1));
+    return $lettre === 'F' ? 'F' : ($lettre === 'M' ? 'M' : '');
+}
+
+/**
  * Reconstitue, à partir du tableau du modèle Word, des lignes compatibles
  * avec l'ordre de colonnes de l'import Excel (Nom, Prénoms, Sexe, Téléphone,
- * Identifiant, NiveauTenu, Emploi, Fonction, Disponibilité) — Sexe et
- * Disponibilité n'existent pas sur la fiche Word et restent vides (valeurs
- * par défaut déjà gérées plus loin dans l'import).
+ * Identifiant, NiveauTenu, Emploi, Fonction, Disponibilité) — Disponibilité
+ * n'existe pas sur la fiche Word et reste vide (valeur par défaut déjà
+ * gérée plus loin dans l'import).
  *
  * @return array<int, array<int, string>>
  */
@@ -48,12 +59,12 @@ function mapperLignesDocxPersonnel(array $lignesDocx, string $typeEcole): array
     $rows = [];
     foreach ($donnees as $ligne) {
         if ($typeEcole === 'Privé') {
-            // N°, NOM, PRENOMS, N°AUTORISATION, FONCTION, COURSTENU, CONTACT, ...
-            [$nom, $prenoms, $identifiant, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 6), 6, '');
+            // N°, NOM, PRENOMS, SEXE, N°AUTORISATION, FONCTION, COURSTENU, CONTACT, ...
+            [$nom, $prenoms, $sexeRaw, $identifiant, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 7), 7, '');
             $emploi = '';
         } else {
-            // N°, NOM, PRENOMS, MATRICULE, CORPS&GRADE, FONCTION, COURSTENU, CONTACT, ...
-            [$nom, $prenoms, $identifiant, $corpsGrade, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 7), 7, '');
+            // N°, NOM, PRENOMS, SEXE, MATRICULE, CORPS&GRADE, FONCTION, COURSTENU, CONTACT, ...
+            [$nom, $prenoms, $sexeRaw, $identifiant, $corpsGrade, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 8), 8, '');
             $emploi = deviverEmploiDepuisCorpsGrade($corpsGrade) ?? '';
         }
 
@@ -61,7 +72,7 @@ function mapperLignesDocxPersonnel(array $lignesDocx, string $typeEcole): array
             continue; // ligne vide du modèle, non remplie par le directeur
         }
 
-        $rows[] = [$nom, $prenoms, '', $contact, $identifiant, $coursTenu, $emploi, $fonction, ''];
+        $rows[] = [$nom, $prenoms, normaliserSexeDocx($sexeRaw), $contact, $identifiant, $coursTenu, $emploi, $fonction, ''];
     }
 
     return $rows;
@@ -579,7 +590,7 @@ include '../views/layouts/header.php';
                     <p class="small text-muted">
                         <i class="bi bi-file-earmark-word"></i>
                         Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste des enseignants" — est accepté tel quel, sans conversion en Excel.
-                        Sexe et Disponibilité n'y figurant pas, ils prennent leur valeur par défaut (M / En activité) et restent modifiables ensuite au cas par cas.
+                        La colonne Sexe (ajoutée après Prénoms) y est lue directement ; Disponibilité, absente du modèle Word, prend sa valeur par défaut (En activité) et reste modifiable ensuite au cas par cas.
                     </p>
                     <input type="file" name="fichier_personnel" class="form-control" accept=".xlsx,.xls,.docx" required>
                 </div>
