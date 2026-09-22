@@ -77,17 +77,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $centreId = (int) ($_POST['centre_id'] ?? 0);
         $personnelId = (int) ($_POST['personnel_id'] ?? 0);
         $role = $_POST['role'] ?? '';
+        $forcer = isset($_POST['forcer_conflit']);
 
         $rolesAutorises = ['Président', 'Chef Secrétariat', 'Membre Secrétariat', 'Superviseur'];
 
         if ($centreId <= 0 || $personnelId <= 0 || !in_array($role, $rolesAutorises, true)) {
             $error = "Requête invalide.";
         } else {
-            $ok = $engine->enregistrerAffectation($typeExamenLibelle, $personnelId, $centreId, $role, true);
-            if ($ok) {
-                $success = "Rôle \"{$role}\" attribué avec succès.";
+            // Vérification anti-collusion, sauf si l'utilisateur force sciemment.
+            $conflit = $engine->estEnConflitAvecCentre($personnelId, $centreId);
+
+            if ($conflit && !$forcer) {
+                $error = "⚠️ Conflit détecté : cette personne appartient à une école du même Groupe Scolaire que ce centre. Cochez \"Forcer malgré le conflit\" pour passer outre (déconseillé).";
             } else {
-                $error = "Cette personne a déjà un rôle attribué pour cet examen (règle de non-redondance). Retirez d'abord son affectation existante.";
+                $ok = $engine->enregistrerAffectation($typeExamenLibelle, $personnelId, $centreId, $role, true);
+                if ($ok) {
+                    $success = "Rôle \"{$role}\" attribué avec succès" . ($conflit ? " (conflit forcé manuellement)." : ".");
+                } else {
+                    $error = "Cette personne a déjà un rôle attribué pour cet examen (règle de non-redondance). Retirez d'abord son affectation existante.";
+                }
             }
         }
 
@@ -102,15 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = "Requête invalide.";
         } else {
             // Vérification anti-collusion, sauf si l'utilisateur force sciemment.
-            $stmtEns = $pdo->prepare("SELECT id, ecole_id FROM personnel WHERE id = ?");
-            $stmtEns->execute([$personnelId]);
-            $ens = $stmtEns->fetch();
-
-            $conflit = false;
-            if ($ens) {
-                $interdits = $engine->calculerCentresInterdits([$ens]);
-                $conflit = in_array($centreId, $interdits[$personnelId] ?? [], true);
-            }
+            $conflit = $engine->estEnConflitAvecCentre($personnelId, $centreId);
 
             if ($conflit && !$forcer) {
                 $error = "⚠️ Conflit détecté : cet enseignant appartient à une école du même Groupe Scolaire que ce centre. Cochez \"Forcer malgré le conflit\" pour passer outre (déconseillé).";
@@ -240,6 +240,20 @@ function selectPersonnelFiltrable(array $vivier, string $nomChamp, string $idBas
             <option value="<?= $p['id'] ?>" data-groupe="<?= htmlspecialchars($p['groupe_role']) ?>"><?= htmlspecialchars($formatLabel($p)) ?></option>
         <?php endforeach; ?>
     </select>
+    <?php
+}
+
+/**
+ * Case à cocher "Forcer malgré un conflit" : permet de passer outre le
+ * refus anti-collusion (École propre/Groupe Scolaire, règles 6.2.A.1/6.2.A.2).
+ */
+function checkboxForcerConflit(string $idBase): void
+{
+    ?>
+    <div class="form-check mt-1">
+        <input type="checkbox" name="forcer_conflit" class="form-check-input" id="<?= $idBase ?>">
+        <label class="form-check-label small" for="<?= $idBase ?>">Forcer malgré un conflit</label>
+    </div>
     <?php
 }
 
@@ -413,6 +427,7 @@ include '../views/layouts/header.php';
                             <input type="hidden" name="role" value="Président">
                             <div class="flex-grow-1">
                                 <?php selectPersonnelFiltrable($vivierPresidentChef, 'personnel_id', 'selectPresident' . $centreId, 'Choisir'); ?>
+                                <?php checkboxForcerConflit('forcerPresident' . $centreId); ?>
                             </div>
                             <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-check"></i></button>
                         </form>
@@ -437,6 +452,7 @@ include '../views/layouts/header.php';
                             <input type="hidden" name="role" value="Chef Secrétariat">
                             <div class="flex-grow-1">
                                 <?php selectPersonnelFiltrable($vivierPresidentChef, 'personnel_id', 'selectChefSecretariat' . $centreId, 'Choisir'); ?>
+                                <?php checkboxForcerConflit('forcerChefSecretariat' . $centreId); ?>
                             </div>
                             <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-check"></i></button>
                         </form>
@@ -461,6 +477,7 @@ include '../views/layouts/header.php';
                         <input type="hidden" name="role" value="Membre Secrétariat">
                         <div class="flex-grow-1">
                             <?php selectPersonnelFiltrable($vivierSecretariat, 'personnel_id', 'selectSecretariat' . $centreId, 'Ajouter'); ?>
+                            <?php checkboxForcerConflit('forcerSecretariat' . $centreId); ?>
                         </div>
                         <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-plus"></i></button>
                     </form>
@@ -491,6 +508,7 @@ include '../views/layouts/header.php';
                                 'Ajouter',
                                 fn ($p) => $p['nom'] . ' ' . $p['prenoms'] . ($p['sous_type'] ? ' (' . $p['sous_type'] . ')' : '')
                             );
+                            checkboxForcerConflit('forcerSuperviseur' . $centreId);
                             ?>
                         </div>
                         <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-plus"></i></button>

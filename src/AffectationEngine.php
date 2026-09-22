@@ -109,8 +109,10 @@ class AffectationEngine
     }
 
     /**
-     * Pour chaque centre, liste des ecole_id qui y composent (via
-     * ecole_centre), y compris les écoles rattachées.
+     * Pour chaque centre, liste des ecole_id qui y composent : l'école hôte
+     * (centres.ecole_id — le cas le plus évident de conflit, un enseignant
+     * ne doit jamais surveiller sa propre école) + les écoles rattachées
+     * (ecole_centre).
      *
      * @return array<int, int[]> ecole_id => liste de centre_id où cette école compose
      */
@@ -121,12 +123,16 @@ class AffectationEngine
         // changer d'une année à l'autre, donc seuls les centres de l'année
         // courante doivent nourrir le calcul anti-collusion.
         $stmt = $this->pdo->prepare("
+            SELECT c.id AS centre_id, c.ecole_id AS ecole_composante_id
+            FROM centres c
+            WHERE c.annee_id = ?
+            UNION
             SELECT ecc.centre_id, ecc.ecole_composante_id
             FROM ecole_centre ecc
             JOIN centres c ON c.id = ecc.centre_id
             WHERE c.annee_id = ?
         ");
-        $stmt->execute([$this->anneeId]);
+        $stmt->execute([$this->anneeId, $this->anneeId]);
 
         $resultat = [];
         foreach ($stmt->fetchAll() as $ligne) {
@@ -172,6 +178,27 @@ class AffectationEngine
         }
 
         return $interdits;
+    }
+
+    /**
+     * Vérifie, pour UNE personne (tout rôle : Président, Secrétariat,
+     * Superviseur, Surveillant), si elle est en conflit anti-collusion
+     * (règles 6.2.A.1/6.2.A.2) avec un centre donné. Utilisé par les
+     * affectations manuelles avant enregistrement.
+     */
+    public function estEnConflitAvecCentre(int $personnelId, int $centreId): bool
+    {
+        $stmt = $this->pdo->prepare("SELECT id, ecole_id FROM personnel WHERE id = ?");
+        $stmt->execute([$personnelId]);
+        $personne = $stmt->fetch();
+
+        if (!$personne) {
+            return false;
+        }
+
+        $interdits = $this->calculerCentresInterdits([$personne]);
+
+        return in_array($centreId, $interdits[$personnelId] ?? [], true);
     }
 
     /**
