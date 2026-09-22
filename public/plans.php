@@ -1573,6 +1573,16 @@ include '../views/layouts/header.php';
                 }
             }
 
+            // Regroupe les salles par effectif identique (ex: "10 salles de 30,
+            // 5 salles de 29"), du plus grand effectif au plus petit, pour un
+            // coup d'œil rapide avant le détail salle par salle.
+            $repartitionParEffectif = [];
+            foreach ($plan['salles'] as $salle) {
+                $eff = (int) $salle['effectif_retenu'];
+                $repartitionParEffectif[$eff] = ($repartitionParEffectif[$eff] ?? 0) + 1;
+            }
+            krsort($repartitionParEffectif);
+
             ?>
 
             <div class="card shadow-sm mb-4" id="centre-card-<?= (int) $plan['centre_effectif_id'] ?>">
@@ -1950,6 +1960,22 @@ include '../views/layouts/header.php';
                                 ====================================== -->
 
                                 <tfoot>
+
+                                    <?php if (!empty($repartitionParEffectif)): ?>
+                                        <tr class="table-light">
+                                            <td colspan="6" class="small text-muted">
+                                                <i class="bi bi-bar-chart-steps"></i>
+                                                Répartition :
+                                                <?php
+                                                $morceaux = [];
+                                                foreach ($repartitionParEffectif as $eff => $nb) {
+                                                    $morceaux[] = "$nb salle" . ($nb > 1 ? 's' : '') . " de $eff";
+                                                }
+                                                echo htmlspecialchars(implode(', ', $morceaux));
+                                                ?>
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
 
                                     <tr class="table-light">
 

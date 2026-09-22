@@ -166,8 +166,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter_ecole']) || 
 $filtreStatut = $_GET['filtre_statut'] ?? '';
 $filtreRecherche = $_GET['recherche'] ?? '';
 
-$sql = "SELECT e.*, t.nom as nom_tuteur FROM ecoles e LEFT JOIN ecoles t ON e.ecole_tutrice_id = t.id WHERE 1=1";
-$params = [];
+$sql = "SELECT e.*, t.nom as nom_tuteur,
+    (SELECT COUNT(*) FROM candidats c WHERE c.ecole_id = e.id AND c.annee_id = ?) AS nb_candidats
+    FROM ecoles e LEFT JOIN ecoles t ON e.ecole_tutrice_id = t.id WHERE 1=1";
+$params = [$anneeId];
 
 if ($filtreStatut) {
     $sql .= " AND e.statut = ?";
@@ -277,6 +279,7 @@ include '../views/layouts/header.php';
                             <th>Statut</th>
                             <th>Rattachement</th>
                             <th>Directeur</th>
+                            <th class="text-center">Candidats</th>
                             <th>Centre?</th>
                             <th style="width:60px" class="text-end">Actions</th>
                         </tr>
@@ -298,6 +301,13 @@ include '../views/layouts/header.php';
                                 <?php endif; ?>
                             </td>
                             <td><?= htmlspecialchars($e['directeur_nom']) ?><br><small class="text-muted"><?= htmlspecialchars($e['directeur_telephone']) ?></small></td>
+                            <td class="text-center">
+                                <?php if ((int) $e['nb_candidats'] > 0): ?>
+                                    <a href="candidats.php?ecole_id=<?= (int) $e['id'] ?>" class="badge bg-primary text-decoration-none"><?= (int) $e['nb_candidats'] ?></a>
+                                <?php else: ?>
+                                    <span class="text-muted">0</span>
+                                <?php endif; ?>
+                            </td>
                             <td class="text-center"><?= $e['est_centre_examen'] ? '✅' : '-' ?></td>
                             <td class="text-end">
                                 <div class="dropdown">
