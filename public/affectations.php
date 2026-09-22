@@ -33,7 +33,9 @@ if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
 |--------------------------------------------------------------------------
 */
 
-$stmt = $pdo->prepare("SELECT id, code, libelle, ordre FROM examens WHERE annee_id = ? AND actif = 1 ORDER BY ordre");
+// Les Compositions (COMPO_1/COMPO_2) sont des évaluations internes sans
+// centre ni surveillance : elles n'ont pas leur place dans ce module.
+$stmt = $pdo->prepare("SELECT id, code, libelle, ordre FROM examens WHERE annee_id = ? AND actif = 1 AND code NOT IN ('COMPO_1', 'COMPO_2') ORDER BY ordre");
 $stmt->execute([$anneeId]);
 $examens = $stmt->fetchAll();
 
