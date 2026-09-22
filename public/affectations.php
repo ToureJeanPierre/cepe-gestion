@@ -189,10 +189,54 @@ foreach ($stmt->fetchAll() as $a) {
 function vivierParCategorie(PDO $pdo, array $categories, array $exclureIds): array
 {
     $placeholders = implode(',', array_fill(0, count($categories), '?'));
-    $sql = "SELECT id, nom, prenoms, categorie, sous_type, ecole_id FROM personnel WHERE categorie IN ($placeholders) AND disponibilite = 'En activité' ORDER BY nom, prenoms";
+    $sql = "SELECT id, nom, prenoms, categorie, sous_type, fonction, ecole_id FROM personnel WHERE categorie IN ($placeholders) AND disponibilite = 'En activité' ORDER BY nom, prenoms";
     $stmt = $pdo->prepare($sql);
     $stmt->execute($categories);
-    return array_values(array_filter($stmt->fetchAll(), fn ($p) => !in_array((int) $p['id'], $exclureIds, true)));
+    $lignes = array_values(array_filter($stmt->fetchAll(), fn ($p) => !in_array((int) $p['id'], $exclureIds, true)));
+
+    // Regroupement affiché avant le nom (filtre "Catégorie" côté formulaire) :
+    // Directeur / Adjoint pour les enseignants, Conseiller, Administratif.
+    foreach ($lignes as &$p) {
+        if ($p['categorie'] === 'enseignant') {
+            $p['groupe_role'] = stripos((string) $p['fonction'], 'directeur') === 0 ? 'Directeur' : 'Adjoint';
+        } elseif ($p['categorie'] === 'conseiller') {
+            $p['groupe_role'] = 'Conseiller';
+        } else {
+            $p['groupe_role'] = 'Administratif';
+        }
+    }
+    unset($p);
+
+    return $lignes;
+}
+
+/**
+ * Rend un <select> "personnel_id" filtrable par catégorie (Directeur, Adjoint,
+ * Conseiller, Administratif...) : un select "Catégorie" au-dessus ne montre,
+ * via JS, que les options du select des noms partageant ce data-groupe.
+ */
+function selectPersonnelFiltrable(array $vivier, string $nomChamp, string $idBase, string $texteVide): void
+{
+    $groupesPresents = [];
+    foreach ($vivier as $p) {
+        $groupesPresents[$p['groupe_role']] = true;
+    }
+    ?>
+    <?php if (count($groupesPresents) > 1): ?>
+        <select class="form-select form-select-sm mb-1 filtre-categorie-personnel" data-cible="<?= $idBase ?>">
+            <option value="">Toutes catégories</option>
+            <?php foreach (array_keys($groupesPresents) as $groupe): ?>
+                <option value="<?= htmlspecialchars($groupe) ?>"><?= htmlspecialchars($groupe) ?>s</option>
+            <?php endforeach; ?>
+        </select>
+    <?php endif; ?>
+    <select name="<?= $nomChamp ?>" id="<?= $idBase ?>" class="form-select form-select-sm" required>
+        <option value="">— <?= htmlspecialchars($texteVide) ?> —</option>
+        <?php foreach ($vivier as $p): ?>
+            <option value="<?= $p['id'] ?>" data-groupe="<?= htmlspecialchars($p['groupe_role']) ?>"><?= htmlspecialchars($p['nom'] . ' ' . $p['prenoms']) ?></option>
+        <?php endforeach; ?>
+    </select>
+    <?php
 }
 
 // Verrouillage global : uniquement les rôles à présence physique unique. Le
@@ -359,13 +403,10 @@ include '../views/layouts/header.php';
                             <input type="hidden" name="action" value="affecter_role">
                             <input type="hidden" name="centre_id" value="<?= $centreId ?>">
                             <input type="hidden" name="role" value="Président">
-                            <select name="personnel_id" class="form-select form-select-sm" required>
-                                <option value="">— Choisir —</option>
-                                <?php foreach ($vivierPresidentChef as $p): ?>
-                                    <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['nom'] . ' ' . $p['prenoms']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <button class="btn btn-sm btn-outline-primary"><i class="bi bi-check"></i></button>
+                            <div class="flex-grow-1">
+                                <?php selectPersonnelFiltrable($vivierPresidentChef, 'personnel_id', 'selectPresident' . $centreId, 'Choisir'); ?>
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-check"></i></button>
                         </form>
                     <?php endif; ?>
                 </div>
@@ -386,13 +427,10 @@ include '../views/layouts/header.php';
                             <input type="hidden" name="action" value="affecter_role">
                             <input type="hidden" name="centre_id" value="<?= $centreId ?>">
                             <input type="hidden" name="role" value="Chef Secrétariat">
-                            <select name="personnel_id" class="form-select form-select-sm" required>
-                                <option value="">— Choisir —</option>
-                                <?php foreach ($vivierPresidentChef as $p): ?>
-                                    <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['nom'] . ' ' . $p['prenoms']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <button class="btn btn-sm btn-outline-primary"><i class="bi bi-check"></i></button>
+                            <div class="flex-grow-1">
+                                <?php selectPersonnelFiltrable($vivierPresidentChef, 'personnel_id', 'selectChefSecretariat' . $centreId, 'Choisir'); ?>
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-check"></i></button>
                         </form>
                     <?php endif; ?>
                 </div>
@@ -413,13 +451,10 @@ include '../views/layouts/header.php';
                         <input type="hidden" name="action" value="affecter_role">
                         <input type="hidden" name="centre_id" value="<?= $centreId ?>">
                         <input type="hidden" name="role" value="Membre Secrétariat">
-                        <select name="personnel_id" class="form-select form-select-sm" required>
-                            <option value="">— Ajouter —</option>
-                            <?php foreach ($vivierSecretariat as $p): ?>
-                                <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['nom'] . ' ' . $p['prenoms']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus"></i></button>
+                        <div class="flex-grow-1">
+                            <?php selectPersonnelFiltrable($vivierSecretariat, 'personnel_id', 'selectSecretariat' . $centreId, 'Ajouter'); ?>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-plus"></i></button>
                     </form>
                 </div>
 
@@ -521,5 +556,31 @@ include '../views/layouts/header.php';
     <?php endif; ?>
 
 </div>
+
+<script>
+// Filtre "Catégorie" au-dessus d'un select de personnel (Président, Chef de
+// Secrétariat, Membres du Secrétariat) : ne montre que les options dont
+// data-groupe correspond à la catégorie choisie, pour retrouver un nom plus
+// vite dans une longue liste. "Toutes catégories" réaffiche tout.
+document.addEventListener('change', function (evenement) {
+    var filtre = evenement.target;
+    if (!filtre.classList || !filtre.classList.contains('filtre-categorie-personnel')) {
+        return;
+    }
+
+    var cible = document.getElementById(filtre.dataset.cible);
+    if (!cible) return;
+
+    var groupeChoisi = filtre.value;
+    cible.value = '';
+
+    Array.prototype.forEach.call(cible.options, function (option) {
+        if (!option.value) return; // "— Choisir —"
+        var visible = !groupeChoisi || option.dataset.groupe === groupeChoisi;
+        option.hidden = !visible;
+        option.disabled = !visible;
+    });
+});
+</script>
 
 <?php include '../views/layouts/footer.php'; ?>
