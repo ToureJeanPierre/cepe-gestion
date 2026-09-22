@@ -1,0 +1,6 @@
+# Sauvegardes de la base de données (données personnelles réelles des élèves
+# et du personnel) — ne doivent jamais être versionnées.
+/backups/
+
+# Fichiers d'environnement local
+.env

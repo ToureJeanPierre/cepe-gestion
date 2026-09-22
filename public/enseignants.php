@@ -31,6 +31,59 @@ function deviverEmploiDepuisCorpsGrade(string $texte): ?string
 }
 
 /**
+ * Déduit l'emploi (IO/IA) d'une colonne "Corps et grade" au format
+ * "OI/B3" ou "IA/C3" (fichiers consolidés multi-écoles) — "OI" est une
+ * variante/coquille fréquente de "IO" (Instituteur Ordinaire) dans ces
+ * fichiers réels, traitée comme équivalente.
+ */
+function deviverEmploiDepuisCorpsGradeAvecSlash(string $texte): ?string
+{
+    $premierMorceau = strtoupper(trim(explode('/', $texte)[0] ?? ''));
+    if (in_array($premierMorceau, ['IO', 'OI'], true)) {
+        return 'IO';
+    }
+    if ($premierMorceau === 'IA') {
+        return 'IA';
+    }
+    return null;
+}
+
+/**
+ * Reconstitue, à partir d'un fichier consolidé couvrant PLUSIEURS écoles à
+ * la fois (colonne "Nom Ecole" par ligne, ex: export DSPS/DRENA), des
+ * lignes compatibles avec l'import standard — chaque ligne porte en plus
+ * (10ᵉ élément) le nom d'école brut, résolu par l'appelant.
+ *
+ * Colonnes attendues du fichier : Nom, Prénoms, Nom École, Classe (niveau
+ * tenu), Matricule/N° autorisation, Fonction, Contact, Corps et grade.
+ *
+ * @return array<int, array<int, string>>
+ */
+function mapperLignesMultiEcoles(array $rowsBrut): array
+{
+    $rows = [];
+    foreach ($rowsBrut as $ligne) {
+        $nom = trim((string) ($ligne[0] ?? ''));
+        if ($nom === '') {
+            continue;
+        }
+        $prenoms = trim((string) ($ligne[1] ?? ''));
+        $nomEcole = trim((string) ($ligne[2] ?? ''));
+        $classe = trim((string) ($ligne[3] ?? ''));
+        $identifiant = trim((string) ($ligne[4] ?? ''));
+        $identifiant = ($identifiant === '' || $identifiant === '/') ? '' : $identifiant;
+        $fonction = trim((string) ($ligne[5] ?? ''));
+        $contact = trim((string) ($ligne[6] ?? ''));
+        $corpsGrade = trim((string) ($ligne[7] ?? ''));
+        $emploi = deviverEmploiDepuisCorpsGradeAvecSlash($corpsGrade) ?? '';
+
+        $rows[] = [$nom, $prenoms, '', $contact, $identifiant, $classe, $emploi, $fonction, '', $nomEcole];
+    }
+
+    return $rows;
+}
+
+/**
  * Normalise une valeur "Sexe" telle que tapée librement par un directeur
  * (F, f, Féminin, M, Masculin...) vers M/F — chaîne vide si non reconnu,
  * pour laisser la valeur par défaut (M) déjà gérée par l'import s'appliquer.
@@ -87,6 +140,51 @@ const FONCTIONS_ENSEIGNANT = ['Directeur (avec classe)', 'Directeur (sans classe
 const NIVEAUX = ['CP1', 'CP2', 'CE1', 'CE2', 'CM1', 'CM2'];
 const DISPONIBILITES = ['En activité', 'Congé maternité', 'Congé maladie', 'Absent', 'Autre'];
 
+// Correspondances nom abrégé (tel qu'utilisé dans certains fichiers reçus,
+// ex. exports consolidés) -> nom exact déjà enregistré dans l'onglet Écoles.
+// Chaque entrée a été vérifiée individuellement (une seule école possible
+// pour ce nom abrégé) avant d'être ajoutée ici — ne complète cette liste
+// qu'après une vérification aussi précise, pour éviter de rattacher des
+// enseignants à la mauvaise école.
+const ALIAS_NOMS_ECOLES_IMPORT = [
+    'epp antenne 1' => 'EPP NIANGON SUD SOGEFIHA ANTENNE 1',
+    'epp antenne 2' => 'EPP NIANGON SUD SOGEFIHA ANTENNE 2',
+    'epp antenne 3' => 'EPP NIANGON SUD SOGEFIHA ANTENNE 3',
+    'epp centre 1' => 'EPP NIANGON SUD SICOGI CENTRE 1',
+    'epp centre 2' => 'EPP NIANGON SUD CENTRE 2',
+    'epp centre 3' => 'EPP NIANG.SUD SICOGI CENTRE 3',
+    'epp lagune 1' => 'EPP NIANGON SUD SOGEFIHA LAGUNE 1',
+    'epp lagune 2' => 'EPP NIANG.SUD SOGEFIHA LAGUNE 2',
+    'epp les lauriers 2a' => 'EPP LES LAURIERS 2 A',
+    'epp les lauriers 2b' => 'EPP LAURIERS 2 B',
+    'epp lokoa 1' => 'EPP NIANGON LOKOA 1',
+    'epp lokoa 2' => 'EPP NIANGON LOKOA 2',
+    'epp lokoa 3' => 'EPP NIANGON LOKOA 3',
+    'epp sipim ivoire' => 'EPP NIANGON SUD SIPIM IVOIRE',
+    'epp terminus 1' => 'EPP NIANGON SUD SICOGI TERMINUS 1',
+    'epp terminus 2' => 'EPP NIANGON SUD SICOGI TERMINUS 2',
+    'epv datro zahui' => 'EPV DATRO ZAHUI DE YOPOUGON AZITO',
+    'epv divine fontaine' => 'EPV DIVINE FONTAINE DE YOPOUGON',
+    'epv fatoumaba' => 'GROUPE SCOLAIRE FATOUMABA',
+    "epv kouame n' dri" => "EPV KOUAME N'DRI",
+    'epv la colline' => 'EPV LA COLLINE DE NIANGON',
+    'epv la misericorde 1' => 'GROUPE SCOLAIRE LA MISÉRICORDE 1',
+    "epv l'effort" => "EPV L' EFFORT",
+    'epv les petits savants' => 'GROUPE SCOLAIRE LES PETITS SAVANTS',
+    'epv les petit genies' => 'EPV GS LES PETITS GENIES',
+    'epv les tisserins' => 'EPV LES TISSSERINS',
+    'epv nippon' => 'EPV GS NIPPON',
+    'epv saint chalmel' => 'EPV GS SAINT CHALMEL',
+    'epv saint exupery' => 'EPV ANTOINE DE SAINT EXUPERY',
+    'epv sainte gloire' => 'EPV LA SAINTE GLOIRE',
+];
+
+/** Normalise un nom d'école pour comparaison : minuscules, espaces multiples réduits, espaces de bord retirés. */
+function normaliserNomEcolePourComparaison(string $nom): string
+{
+    return trim(preg_replace('/\s+/', ' ', mb_strtolower($nom)));
+}
+
 // ==========================================
 // TRAITEMENT : IMPORTATION EXCEL
 // ==========================================
@@ -95,11 +193,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
     // choisies UNE FOIS pour tout le fichier, car en pratique chaque source de
     // données arrive déjà séparée (liste des enseignants d'UNE école transmise
     // par son directeur, ou liste des conseillers transmise par la RH).
-    $typeImport = $_POST['type_import'] ?? 'enseignant_ecole'; // enseignant_ecole | conseiller | administratif
+    $typeImport = $_POST['type_import'] ?? 'enseignant_ecole'; // enseignant_ecole | enseignant_multi_ecoles | conseiller | administratif
     $ecoleIdImport = !empty($_POST['ecole_id_import']) ? (int) $_POST['ecole_id_import'] : null;
+    $estMultiEcoles = $typeImport === 'enseignant_multi_ecoles';
     $categorieImport = $typeImport === 'conseiller' ? 'conseiller' : ($typeImport === 'administratif' ? 'administratif' : 'enseignant');
 
-    if ($categorieImport === 'enseignant' && !$ecoleIdImport) {
+    if ($categorieImport === 'enseignant' && !$estMultiEcoles && !$ecoleIdImport) {
         $error = "Veuillez choisir l'école concernée par ce fichier d'enseignants.";
     } elseif (isset($_FILES['fichier_personnel']) && $_FILES['fichier_personnel']['error'] === 0) {
         try {
@@ -121,9 +220,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                 $rows = mapperLignesDocxPersonnel($lignesDocx, $typeEcoleImport);
             } else {
                 $spreadsheet = IOFactory::load($_FILES['fichier_personnel']['tmp_name']);
-                $rows = $spreadsheet->getActiveSheet()->toArray();
-                array_shift($rows); // Saute l'en-tête
+                $rowsBrut = $spreadsheet->getActiveSheet()->toArray();
+                array_shift($rowsBrut); // Saute l'en-tête
+
+                $rows = $estMultiEcoles ? mapperLignesMultiEcoles($rowsBrut) : $rowsBrut;
             }
+
+            // Cache des écoles déjà recherchées (fichier consolidé multi-écoles
+            // uniquement) : évite une requête par ligne sur un fichier de
+            // plusieurs centaines d'enseignants répartis sur peu d'écoles.
+            $ecoleParNomCache = [];
 
             $nbAjouts = 0;
             $nbMajs = 0;
@@ -162,6 +268,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                     $sousType = null;
                     $diplome = null;
                     $niveauEtude = null;
+
+                    if ($estMultiEcoles) {
+                        $nomEcoleLigne = trim($row[9] ?? '');
+                        if ($nomEcoleLigne === '') {
+                            $erreurs[] = "Ligne $numLigne : nom d'école manquant pour $nom $prenoms — ignorée.";
+                            continue;
+                        }
+                        $cleEcole = normaliserNomEcolePourComparaison($nomEcoleLigne);
+                        if (!array_key_exists($cleEcole, $ecoleParNomCache)) {
+                            $stmtEcole = $pdo->prepare("SELECT id, statut FROM ecoles WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) LIMIT 1");
+                            $stmtEcole->execute([$nomEcoleLigne]);
+                            $trouvee = $stmtEcole->fetch();
+
+                            if (!$trouvee && isset(ALIAS_NOMS_ECOLES_IMPORT[$cleEcole])) {
+                                $stmtEcole->execute([ALIAS_NOMS_ECOLES_IMPORT[$cleEcole]]);
+                                $trouvee = $stmtEcole->fetch();
+                            }
+
+                            $ecoleParNomCache[$cleEcole] = $trouvee ?: null;
+                        }
+                        $ecoleTrouvee = $ecoleParNomCache[$cleEcole];
+                        if (!$ecoleTrouvee) {
+                            $erreurs[] = "Ligne $numLigne : école '$nomEcoleLigne' introuvable pour $nom $prenoms — ignorée.";
+                            continue;
+                        }
+                        $ecoleIdImport = (int) $ecoleTrouvee['id'];
+                        $typeEcoleImport = $ecoleTrouvee['statut'];
+                    }
 
                     $ecoleId = $categorieImport === 'enseignant' ? $ecoleIdImport : null;
                     $typeEcole = $categorieImport === 'enseignant' ? $typeEcoleImport : 'Public';
@@ -242,6 +376,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                             $diplome, $niveauEtude,
                         ]);
                         $nbAjouts++;
+                    }
+
+                    // Renseigne automatiquement le contact du directeur sur la fiche
+                    // école : la liste d'enseignants d'une école indique déjà qui en
+                    // est le directeur et son téléphone, pas la peine de le ressaisir
+                    // à la main dans l'onglet École.
+                    if ($categorieImport === 'enseignant' && $fonction === 'Directeur' && $ecoleId && !empty($telephone)) {
+                        $pdo->prepare("UPDATE ecoles SET directeur_nom = ?, directeur_telephone = ? WHERE id = ?")
+                            ->execute([trim("$nom $prenoms"), $telephone, $ecoleId]);
                     }
                 } catch (Exception $e) {
                     $erreurs[] = "Ligne $numLigne : " . $e->getMessage();
@@ -559,6 +702,7 @@ include '../views/layouts/header.php';
                         <label class="form-label">Ce fichier contient…</label>
                         <select name="type_import" id="selectTypeImportPersonnel" class="form-select" onchange="ajusterImportPersonnel()" required>
                             <option value="enseignant_ecole">Les enseignants d'UNE école (liste d'un directeur)</option>
+                            <option value="enseignant_multi_ecoles">Les enseignants de PLUSIEURS écoles (fichier consolidé, ex. DSPS)</option>
                             <option value="conseiller">Les conseillers (liste de la RH)</option>
                             <option value="administratif">Le personnel administratif</option>
                         </select>
@@ -574,22 +718,37 @@ include '../views/layouts/header.php';
                         </select>
                     </div>
 
-                    <p class="small mb-1">Colonnes attendues dans le fichier, dans cet ordre :</p>
-                    <ol class="small">
-                        <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Téléphone</li>
-                        <li>Matricule (école Publique) ou N° d'autorisation (école Privée) — une seule colonne, orientée automatiquement vers "enseigner" ou "diriger" selon la Fonction</li>
-                        <li>Niveau tenu (CP1 à CM2 — vide = Sans classe)</li>
-                        <li>Emploi : IO ou IA (Public uniquement — en école Privée, IA est appliqué automatiquement, colonne ignorée)</li>
-                        <li>Fonction (Directeur ou Adjoint pour un fichier d'enseignants ; texte libre pour Conseillers/Administratifs)</li>
-                        <li>Disponibilité (En activité / Congé maternité / Congé maladie / Absent / Autre — vide = En activité)</li>
-                    </ol>
+                    <div id="blocColonnesStandard">
+                        <p class="small mb-1">Colonnes attendues dans le fichier, dans cet ordre :</p>
+                        <ol class="small">
+                            <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Téléphone</li>
+                            <li>Matricule (école Publique) ou N° d'autorisation (école Privée) — une seule colonne, orientée automatiquement vers "enseigner" ou "diriger" selon la Fonction</li>
+                            <li>Niveau tenu (CP1 à CM2 — vide = Sans classe)</li>
+                            <li>Emploi : IO ou IA (Public uniquement — en école Privée, IA est appliqué automatiquement, colonne ignorée)</li>
+                            <li>Fonction (Directeur ou Adjoint pour un fichier d'enseignants ; texte libre pour Conseillers/Administratifs)</li>
+                            <li>Disponibilité (En activité / Congé maternité / Congé maladie / Absent / Autre — vide = En activité)</li>
+                        </ol>
+                    </div>
+                    <div id="blocColonnesMultiEcoles" style="display:none;">
+                        <p class="small mb-1">Colonnes attendues dans le fichier, dans cet ordre :</p>
+                        <ol class="small">
+                            <li>Nom</li><li>Prénoms</li>
+                            <li><strong>Nom de l'école</strong> — doit correspondre exactement au nom déjà enregistré dans l'onglet Écoles ; une ligne dont l'école n'est pas retrouvée est ignorée (signalée après l'import)</li>
+                            <li>Niveau tenu / classe</li>
+                            <li>Matricule ou N° d'autorisation</li>
+                            <li>Fonction (Directeur ou Adjoint)</li>
+                            <li>Contact (téléphone)</li>
+                            <li>Corps et grade (ex: "IO/B3", "IA/C3") — l'emploi (IO/IA) en est déduit automatiquement</li>
+                        </ol>
+                        <p class="small text-muted">Public/Privé, et donc Matricule vs N° d'autorisation, sont déterminés automatiquement selon l'école retrouvée pour chaque ligne.</p>
+                    </div>
                     <p class="small text-muted">
                         Le grade des enseignants du Public est déduit automatiquement de l'emploi (IO → B3, IA → C3).
                         Sous-type, grade (Privé), diplôme et niveau d'étude ne sont plus demandés à l'import — modifiables ensuite au cas par cas via "Modifier".
                     </p>
                     <p class="small text-muted">
                         <i class="bi bi-file-earmark-word"></i>
-                        Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste des enseignants" — est accepté tel quel, sans conversion en Excel.
+                        Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste des enseignants" — est accepté tel quel, sans conversion en Excel (uniquement pour "UNE école").
                         La colonne Sexe (ajoutée après Prénoms) y est lue directement ; Disponibilité, absente du modèle Word, prend sa valeur par défaut (En activité) et reste modifiable ensuite au cas par cas.
                     </p>
                     <input type="file" name="fichier_personnel" class="form-control" accept=".xlsx,.xls,.docx" required>
@@ -678,6 +837,10 @@ function ajusterImportPersonnel() {
         champ.required = visible;
         champ.disabled = !visible;
     });
+
+    var multiEcoles = type === 'enseignant_multi_ecoles';
+    document.getElementById('blocColonnesStandard').style.display = multiEcoles ? 'none' : '';
+    document.getElementById('blocColonnesMultiEcoles').style.display = multiEcoles ? '' : 'none';
 }
 document.addEventListener('DOMContentLoaded', ajusterImportPersonnel);
 
