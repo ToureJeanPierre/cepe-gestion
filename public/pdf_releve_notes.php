@@ -5,6 +5,12 @@ require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
 require_once __DIR__ . '/../src/matieres_config.php';
 
+// Le relevé sans filtre d'école couvre tous les candidats éligibles de
+// l'année (plusieurs milliers, groupés par école) : dompdf a besoin de
+// nettement plus que la limite par défaut de PHP pour construire un
+// document de cette taille (mesuré à ~806 Mo de pic pour 3559 candidats).
+ini_set('memory_limit', '2048M');
+
 $examenId = isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : 0;
 $filtreEcole = isset($_GET['ecole_id']) && $_GET['ecole_id'] !== '' ? (int) $_GET['ecole_id'] : null;
 $tri = ($_GET['tri'] ?? 'alpha') === 'merite' ? 'merite' : 'alpha';
