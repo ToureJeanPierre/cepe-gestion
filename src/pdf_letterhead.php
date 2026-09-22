@@ -37,7 +37,8 @@ if (!function_exists('pdfStylesCommunes')) {
             body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #1a1a1a; margin: 0; }
             .entete-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
             .entete-table td { border: none; vertical-align: top; padding: 0; }
-            .entete-gauche { font-size: 9px; line-height: 1.5; text-align: center; width: 66%; padding-left: 0; }
+            .entete-gauche { font-size: 9px; line-height: 1.5; width: 66%; padding-left: 0; }
+            .entete-gauche-inner { display: inline-block; text-align: center; }
             .entete-gauche .ministere { font-weight: bold; }
             .entete-droite { font-size: 9px; line-height: 1.5; text-align: center; width: 34%; }
             .entete-droite .republique { font-weight: bold; }
@@ -70,15 +71,17 @@ if (!function_exists('enteteIepp')) {
             <table class="entete-table">
                 <tr>
                     <td class="entete-gauche">
-                        <div class="ministere">MINISTERE DE L\'EDUCATION NATIONALE DE<br>L\'ALPHABETISATION ET DE L\'ENSEIGNEMENT TECHNIQUE</div>
-                        <hr class="entete-trait">
-                        <div>DIRECTION REGIONALE ABIDJAN 3</div>
-                        <hr class="entete-trait">
-                        <div>INSPECTION DE L\'ENSEIGNEMENT DE PRESCOLAIRE ET<br>PRIMAIRE DE YOPOUGON NIANGON</div>
-                        <hr class="entete-trait">
-                        <div>TEL : 01 51 76 98 08</div>
-                        <div>EMAIL : yopniangon2008@gmail.com</div>
-                        <div>Service : Examens et Concours</div>
+                        <div class="entete-gauche-inner">
+                            <div class="ministere">MINISTERE DE L\'EDUCATION NATIONALE DE<br>L\'ALPHABETISATION ET DE L\'ENSEIGNEMENT TECHNIQUE</div>
+                            <hr class="entete-trait">
+                            <div>DIRECTION REGIONALE ABIDJAN 3</div>
+                            <hr class="entete-trait">
+                            <div>INSPECTION DE L\'ENSEIGNEMENT DE PRESCOLAIRE ET<br>PRIMAIRE DE YOPOUGON NIANGON</div>
+                            <hr class="entete-trait">
+                            <div>TEL : 01 51 76 98 08</div>
+                            <div>EMAIL : yopniangon2008@gmail.com</div>
+                            <div>Service : Examens et Concours</div>
+                        </div>
                     </td>
                     <td class="entete-droite">
                         <div class="republique">REPUBLIQUE DE C&Ocirc;TE D\'IVOIRE</div>
