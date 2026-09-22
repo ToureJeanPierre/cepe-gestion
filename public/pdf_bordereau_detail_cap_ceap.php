@@ -5,9 +5,6 @@ require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
 require_once __DIR__ . '/../src/cap_ceap_config.php';
 
-use Dompdf\Dompdf;
-use Dompdf\Options;
-
 $nature = $_GET['nature'] ?? '';
 if (!array_key_exists($nature, CAP_CEAP_NATURES)) {
     die("Nature d'examen invalide.");
@@ -55,9 +52,7 @@ $html .= '<div style="margin-top:30px;">Nom, prénoms, contact, signature<br>et 
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$options = new Options();
-$options->set('isRemoteEnabled', false);
-$dompdf = new Dompdf($options);
+$dompdf = creerDompdfIepp();
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'landscape');
 $dompdf->render();

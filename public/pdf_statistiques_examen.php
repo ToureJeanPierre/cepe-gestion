@@ -5,9 +5,6 @@ require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
 require_once __DIR__ . '/../src/matieres_config.php';
 
-use Dompdf\Dompdf;
-use Dompdf\Options;
-
 $examenId = isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : 0;
 if (!$examenId || !$anneeId) {
     die("Examen invalide.");
@@ -96,9 +93,7 @@ $html .= '</tbody></table>';
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$options = new Options();
-$options->set('isRemoteEnabled', false);
-$dompdf = new Dompdf($options);
+$dompdf = creerDompdfIepp();
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'portrait');
 $dompdf->render();

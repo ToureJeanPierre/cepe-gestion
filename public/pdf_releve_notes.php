@@ -5,9 +5,6 @@ require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
 require_once __DIR__ . '/../src/matieres_config.php';
 
-use Dompdf\Dompdf;
-use Dompdf\Options;
-
 $examenId = isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : 0;
 $filtreEcole = isset($_GET['ecole_id']) && $_GET['ecole_id'] !== '' ? (int) $_GET['ecole_id'] : null;
 $tri = ($_GET['tri'] ?? 'alpha') === 'merite' ? 'merite' : 'alpha';
@@ -245,9 +242,7 @@ $html .= '</body></html>';
 | RENDU PDF
 |--------------------------------------------------------------------------
 */
-$options = new Options();
-$options->set('isRemoteEnabled', false);
-$dompdf = new Dompdf($options);
+$dompdf = creerDompdfIepp();
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'landscape');
 $dompdf->render();

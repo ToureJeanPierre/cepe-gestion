@@ -11,10 +11,23 @@
 // Coordonnées et signataire mis à jour depuis l'en-tête officielle 2026-2027
 // (SYLLA ISSIAKA, nouvel Inspecteur — remplace SORO TIONRO).
 //
-// Note : le blason de la République n'a pas pu être récupéré en image depuis
-// le PDF fourni (aucun outil d'extraction disponible sur ce poste) ; il est
-// remplacé par le bandeau tricolore déjà utilisé dans l'application. Si vous
-// fournissez le fichier image du blason, il peut être intégré facilement.
+// Le blason de la République (public/img/armoiries_cote_ivoire.png) a été
+// extrait du modèle PDF fourni le 22/09/2026 ("entête actualisé 2026-1.pdf")
+// et fond détouré (fond noir d'origine retiré via son masque de transparence).
+
+if (!function_exists('creerDompdfIepp')) {
+    // dompdf restreint par défaut l'accès aux fichiers locaux (ex : le blason)
+    // à son propre dossier vendor/dompdf/dompdf — sans chroot élargi à la
+    // racine du projet, une <img> vers public/img/... échoue silencieusement.
+    function creerDompdfIepp(): \Dompdf\Dompdf
+    {
+        $options = new \Dompdf\Options();
+        $options->set('isRemoteEnabled', false);
+        $options->set('chroot', realpath(__DIR__ . '/..'));
+
+        return new \Dompdf\Dompdf($options);
+    }
+}
 
 if (!function_exists('pdfStylesCommunes')) {
     function pdfStylesCommunes(): string
@@ -28,7 +41,11 @@ if (!function_exists('pdfStylesCommunes')) {
             .entete-gauche .ministere { font-weight: bold; }
             .entete-droite { font-size: 9px; line-height: 1.5; text-align: center; width: 34%; }
             .entete-droite .republique { font-weight: bold; }
-            .drapeau-barre { height: 4px; margin: 4px auto; width: 80px; background: linear-gradient(to right, #f58220 0%, #f58220 33%, #ffffff 33%, #ffffff 66%, #009e49 66%, #009e49 100%); border: 1px solid #ddd; }
+            .armoiries { width: 42px; height: auto; margin: 3px auto; display: block; }
+            .drapeau-barres { margin: 4px auto; text-align: center; }
+            .drapeau-barres span { display: inline-block; height: 6px; width: 32px; }
+            .drapeau-barres .barre-orange { background: #EC7C30; margin-right: 32px; }
+            .drapeau-barres .barre-verte { background: #00AF50; }
             .entete-trait { border: none; border-top: 1px dashed #666; width: 130px; margin: 2px auto; }
             .titre-doc { text-align: center; margin: 14px 0 4px; }
             .titre-doc .session { font-size: 15px; font-weight: bold; }
@@ -47,6 +64,8 @@ if (!function_exists('pdfStylesCommunes')) {
 if (!function_exists('enteteIepp')) {
     function enteteIepp(string $anneeScolaire): string
     {
+        $blason = str_replace('\\', '/', realpath(__DIR__ . '/../public/img/armoiries_cote_ivoire.png'));
+
         return '
             <table class="entete-table">
                 <tr>
@@ -63,8 +82,9 @@ if (!function_exists('enteteIepp')) {
                     </td>
                     <td class="entete-droite">
                         <div class="republique">REPUBLIQUE DE C&Ocirc;TE D\'IVOIRE</div>
+                        <img src="' . $blason . '" class="armoiries" alt="">
                         <div>Union &ndash; Discipline - Travail</div>
-                        <div class="drapeau-barre"></div>
+                        <div class="drapeau-barres"><span class="barre-orange"></span><span class="barre-verte"></span></div>
                         <div>ANNEE SCOLAIRE : ' . htmlspecialchars($anneeScolaire) . '</div>
                     </td>
                 </tr>

@@ -4,8 +4,6 @@ require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
 
-use Dompdf\Dompdf;
-use Dompdf\Options;
 use Iepp\CepeGestion\AffectationEngine;
 
 $examenId = isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : 0;
@@ -88,9 +86,7 @@ foreach ($parSuperviseur as $data) {
 
 $html .= '</body></html>';
 
-$options = new Options();
-$options->set('isRemoteEnabled', false);
-$dompdf = new Dompdf($options);
+$dompdf = creerDompdfIepp();
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'portrait');
 $dompdf->render();

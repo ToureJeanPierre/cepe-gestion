@@ -5,9 +5,6 @@ require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
 require_once __DIR__ . '/../src/cap_ceap_config.php';
 
-use Dompdf\Dompdf;
-use Dompdf\Options;
-
 if (!$anneeId) {
     die("Aucune année scolaire n'existe dans la base de données.");
 }
@@ -50,9 +47,7 @@ $html .= '</tbody></table>';
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$options = new Options();
-$options->set('isRemoteEnabled', false);
-$dompdf = new Dompdf($options);
+$dompdf = creerDompdfIepp();
 $dompdf->loadHtml($html);
 $dompdf->setPaper('A4', 'portrait');
 $dompdf->render();
