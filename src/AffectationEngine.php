@@ -183,11 +183,10 @@ class AffectationEngine
     public function viveirEnseignantsDisponibles(string $typeExamenLibelle): array
     {
         $stmt = $this->pdo->prepare("
-            SELECT p.id, p.ecole_id, p.nom, p.prenoms, p.sexe, p.niveau_tenu, p.type_ecole
+            SELECT p.id, p.ecole_id, p.nom, p.prenoms, p.sexe, p.niveau_tenu, p.type_ecole, p.fonction
             FROM personnel p
             WHERE p.categorie = 'enseignant'
               AND p.disponibilite = 'En activité'
-              AND p.niveau_tenu IS NOT NULL
               AND NOT EXISTS (
                     SELECT 1 FROM affectations a
                     WHERE a.enseignant_id = p.id
@@ -253,8 +252,8 @@ class AffectationEngine
      * affecté (déjà un rôle sur cet examen).
      *
      * Non-redondance : tous les rôles à présence physique unique (Président,
-     * Chef Secrétariat, Membre Secrétariat, Surveillant, Suppléant) limitent
-     * la personne à UN SEUL centre par examen. Le rôle Superviseur fait
+     * Chef Secrétariat, Membre Secrétariat, Surveillant) limitent la
+     * personne à UN SEUL centre par examen. Le rôle Superviseur fait
      * exception : un superviseur couvre en pratique plusieurs centres de sa
      * zone sur un même examen (confirmé par le document réel "Mission de
      * Supervision"), donc plusieurs lignes lui sont autorisées — la
@@ -419,10 +418,10 @@ class AffectationEngine
 
     /**
      * Génération automatique des surveillants pour l'Examen Final :
-     * quota = nb salles + 2 par centre, ordre de priorité réglementaire
-     * strict (table PRIORITE_FINAL), anti-collusion respectée. Les 2
-     * derniers surveillants affectés dans chaque centre sont marqués
-     * "Suppléant" (réserve).
+     * quota = nb salles + 2 (réserve) par centre, ordre de priorité
+     * réglementaire strict (table PRIORITE_FINAL), anti-collusion
+     * respectée. Tous portent le même rôle "Surveillant" — la réserve
+     * n'est qu'un quota interne, pas une distinction de rôle affichée.
      *
      * @return array{affectes:int, non_affectes:array, centres_incomplets:array, warnings:string[]}
      */
@@ -481,10 +480,7 @@ class AffectationEngine
                     continue;
                 }
 
-                $nbSallesQuota = $centres[$cid]['nb_salles'];
-                $role = $affectesPourCeCentre < $nbSallesQuota ? 'Surveillant' : 'Suppléant';
-
-                $ok = $this->enregistrerAffectation($typeExamenLibelle, $eid, $cid, $role, false);
+                $ok = $this->enregistrerAffectation($typeExamenLibelle, $eid, $cid, 'Surveillant', false);
                 if ($ok) {
                     $pool[$i]['_affecte'] = true;
                     $affectes++;

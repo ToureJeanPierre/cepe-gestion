@@ -95,10 +95,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $centreId = (int) ($_POST['centre_id'] ?? 0);
         $personnelId = (int) ($_POST['personnel_id'] ?? 0);
-        $role = $_POST['role'] ?? 'Surveillant';
+        $role = 'Surveillant';
         $forcer = isset($_POST['forcer_conflit']);
 
-        if ($centreId <= 0 || $personnelId <= 0 || !in_array($role, ['Surveillant', 'Suppléant'], true)) {
+        if ($centreId <= 0 || $personnelId <= 0) {
             $error = "Requête invalide.";
         } else {
             // Vérification anti-collusion, sauf si l'utilisateur force sciemment.
@@ -152,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             WHERE annee_id = ? AND type_examen = ? AND est_manuel = 0
         ");
         $stmt->execute([$anneeId, $typeExamenLibelle]);
-        $success = "Les affectations automatiques (surveillants/suppléants) de cet examen ont été réinitialisées. Les rôles saisis manuellement sont conservés.";
+        $success = "Les affectations automatiques (surveillants) de cet examen ont été réinitialisées. Les rôles saisis manuellement sont conservés.";
         unset($_SESSION['affectations_warnings']);
     }
 }
@@ -217,8 +217,10 @@ function vivierParCategorie(PDO $pdo, array $categories, array $exclureIds): arr
  * Conseiller, Administratif...) : un select "Catégorie" au-dessus ne montre,
  * via JS, que les options du select des noms partageant ce data-groupe.
  */
-function selectPersonnelFiltrable(array $vivier, string $nomChamp, string $idBase, string $texteVide): void
+function selectPersonnelFiltrable(array $vivier, string $nomChamp, string $idBase, string $texteVide, ?callable $formatLabel = null): void
 {
+    $formatLabel = $formatLabel ?? fn ($p) => $p['nom'] . ' ' . $p['prenoms'];
+
     $groupesPresents = [];
     foreach ($vivier as $p) {
         $groupesPresents[$p['groupe_role']] = true;
@@ -235,7 +237,7 @@ function selectPersonnelFiltrable(array $vivier, string $nomChamp, string $idBas
     <select name="<?= $nomChamp ?>" id="<?= $idBase ?>" class="form-select form-select-sm" required>
         <option value="">— <?= htmlspecialchars($texteVide) ?> —</option>
         <?php foreach ($vivier as $p): ?>
-            <option value="<?= $p['id'] ?>" data-groupe="<?= htmlspecialchars($p['groupe_role']) ?>"><?= htmlspecialchars($p['nom'] . ' ' . $p['prenoms']) ?></option>
+            <option value="<?= $p['id'] ?>" data-groupe="<?= htmlspecialchars($p['groupe_role']) ?>"><?= htmlspecialchars($formatLabel($p)) ?></option>
         <?php endforeach; ?>
     </select>
     <?php
@@ -246,10 +248,14 @@ function selectPersonnelFiltrable(array $vivier, string $nomChamp, string $idBas
 // plusieurs centres sur le même examen (cf. AffectationEngine::enregistrerAffectation).
 $dejaVerrouilles = array_keys(array_filter($rolesUniques, fn ($role) => $role !== 'Superviseur'));
 
-$vivierPresidentChef = vivierParCategorie($pdo, ['enseignant', 'administratif'], $dejaVerrouilles);
+$vivierPresidentChef = vivierParCategorie($pdo, ['enseignant', 'administratif', 'conseiller'], $dejaVerrouilles);
 $vivierSecretariat    = vivierParCategorie($pdo, ['enseignant', 'administratif', 'conseiller'], $dejaVerrouilles);
-$vivierSuperviseursBase = vivierParCategorie($pdo, ['conseiller'], $dejaVerrouilles);
+$vivierSuperviseursBase = vivierParCategorie($pdo, ['enseignant', 'administratif', 'conseiller'], $dejaVerrouilles);
 $vivierSurveillants   = $engine->viveirEnseignantsDisponibles($typeExamenLibelle);
+foreach ($vivierSurveillants as &$p) {
+    $p['groupe_role'] = stripos((string) $p['fonction'], 'directeur') === 0 ? 'Directeur' : 'Adjoint';
+}
+unset($p);
 
 $nomsEcoles = [];
 $stmt = $pdo->query("SELECT id, nom FROM ecoles");
@@ -329,7 +335,7 @@ include '../views/layouts/header.php';
                 </button>
             </form>
 
-            <form method="post" class="d-inline" onsubmit="return confirm('Retirer TOUTES les affectations automatiques (Surveillant/Suppléant non manuelles) de cet examen ? Les rôles saisis à la main (Président, Secrétariat, Superviseur, et surveillants ajoutés manuellement) seront conservés.');">
+            <form method="post" class="d-inline" onsubmit="return confirm('Retirer TOUTES les affectations automatiques (Surveillants non manuelles) de cet examen ? Les rôles saisis à la main (Président, Secrétariat, Superviseur, et surveillants ajoutés manuellement) seront conservés.');">
                 <input type="hidden" name="action" value="reinitialiser_auto">
                 <button type="submit" class="btn btn-outline-danger">
                     <i class="bi bi-arrow-counterclockwise"></i> Réinitialiser les affectations automatiques
@@ -461,7 +467,7 @@ include '../views/layouts/header.php';
                 </div>
 
                 <div class="col-md-3">
-                    <label class="form-label small text-muted">Superviseur(s) <span class="text-muted">(Conseillers)</span></label>
+                    <label class="form-label small text-muted">Superviseur(s)</label>
                     <?php foreach ($superviseurs as $s): ?>
                         <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-1">
                             <span class="small"><?= htmlspecialchars($s['nom'] . ' ' . $s['prenoms']) ?></span>
@@ -476,13 +482,18 @@ include '../views/layouts/header.php';
                         <input type="hidden" name="action" value="affecter_role">
                         <input type="hidden" name="centre_id" value="<?= $centreId ?>">
                         <input type="hidden" name="role" value="Superviseur">
-                        <select name="personnel_id" class="form-select form-select-sm" required>
-                            <option value="">— Ajouter —</option>
-                            <?php foreach ($vivierSuperviseurs as $p): ?>
-                                <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['nom'] . ' ' . $p['prenoms']) ?> <?= $p['sous_type'] ? '(' . htmlspecialchars($p['sous_type']) . ')' : '' ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-plus"></i></button>
+                        <div class="flex-grow-1">
+                            <?php
+                            selectPersonnelFiltrable(
+                                $vivierSuperviseurs,
+                                'personnel_id',
+                                'selectSuperviseur' . $centreId,
+                                'Ajouter',
+                                fn ($p) => $p['nom'] . ' ' . $p['prenoms'] . ($p['sous_type'] ? ' (' . $p['sous_type'] . ')' : '')
+                            );
+                            ?>
+                        </div>
+                        <button class="btn btn-sm btn-outline-primary align-self-start"><i class="bi bi-plus"></i></button>
                     </form>
                 </div>
 
@@ -492,7 +503,7 @@ include '../views/layouts/header.php';
 
             <div class="row">
                 <div class="col-md-8">
-                    <label class="form-label small text-muted">Surveillants / Suppléants (<?= $compteSurveillance ?>)</label>
+                    <label class="form-label small text-muted">Surveillants (<?= $compteSurveillance ?>)</label>
                     <div class="table-responsive" style="max-height: 260px; overflow-y:auto;">
                         <table class="table table-sm table-striped align-middle mb-0">
                             <thead>
@@ -528,17 +539,16 @@ include '../views/layouts/header.php';
                     <form method="post">
                         <input type="hidden" name="action" value="affecter_surveillant_manuel">
                         <input type="hidden" name="centre_id" value="<?= $centreId ?>">
-                        <select name="personnel_id" class="form-select form-select-sm mb-2" required>
-                            <option value="">— Choisir un enseignant —</option>
-                            <?php foreach ($vivierSurveillants as $p): ?>
-                                <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['nom'] . ' ' . $p['prenoms']) ?> (<?= htmlspecialchars($p['niveau_tenu'] ?? '') ?>, <?= htmlspecialchars($p['type_ecole']) ?>)</option>
-                            <?php endforeach; ?>
-                        </select>
-                        <select name="role" class="form-select form-select-sm mb-2">
-                            <option value="Surveillant">Surveillant</option>
-                            <option value="Suppléant">Suppléant (réserve)</option>
-                        </select>
-                        <div class="form-check mb-2">
+                        <?php
+                        selectPersonnelFiltrable(
+                            $vivierSurveillants,
+                            'personnel_id',
+                            'selectSurveillant' . $centreId,
+                            'Choisir',
+                            fn ($p) => $p['nom'] . ' ' . $p['prenoms'] . ' (' . ($p['niveau_tenu'] ?: '—') . ', ' . $p['type_ecole'] . ')'
+                        );
+                        ?>
+                        <div class="form-check mb-2 mt-2">
                             <input type="checkbox" name="forcer_conflit" class="form-check-input" id="forcer_<?= $centreId ?>">
                             <label class="form-check-label small" for="forcer_<?= $centreId ?>">Forcer malgré un conflit détecté</label>
                         </div>
