@@ -52,9 +52,9 @@ if (!function_exists('pdfStylesCommunes')) {
             .titre-doc .session { font-size: 15px; font-weight: bold; }
             .titre-doc .nom-doc { font-size: 13px; font-weight: bold; text-decoration: underline; margin-top: 2px; }
             .numero-reference { font-size: 10px; margin: 6px 0 12px; }
-            .signature-bloc { margin-top: 30px; text-align: right; font-size: 11px; page-break-inside: avoid; }
+            .signature-bloc { margin-top: 4px; text-align: right; font-size: 11px; page-break-inside: avoid; }
             .signature-bloc-titre { display: inline-block; text-align: center; }
-            .signature-bloc .fonction { margin-top: 40px; }
+            .signature-bloc .fonction { margin-top: 12px; }
             .signature-bloc .nom { font-weight: bold; text-decoration: underline; margin-top: 45px; }
             table.doc-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
             table.doc-table th, table.doc-table td { border: 1px solid #999; padding: 4px 6px; text-align: left; font-size: 10px; }
