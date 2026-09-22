@@ -17,8 +17,7 @@ $ecoles = $pdo->query("
 $html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '</style></head><body>';
 
 $html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
-$html .= titreDocumentIepp('ANNEE SCOLAIRE ' . ($ANNEE_SCOLAIRE ?? ''), 'REPERTOIRE DES ECOLES');
-$html .= '<div style="text-align:center; margin-bottom:10px;">' . count($ecoles) . ' écoles — édité le ' . date('d/m/Y') . '</div>';
+$html .= '<div class="titre-doc"><div class="nom-doc" style="font-size:20px;">REPERTOIRE DES ECOLES</div></div>';
 
 $html .= '<table class="doc-table"><thead><tr>
     <th>Nom</th><th>Code DSPS</th><th>Secteur</th><th>Rattachement</th>

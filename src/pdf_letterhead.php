@@ -24,19 +24,19 @@ if (!function_exists('pdfStylesCommunes')) {
             body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #1a1a1a; margin: 0; }
             .entete-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
             .entete-table td { border: none; vertical-align: top; padding: 0; }
-            .entete-gauche { font-size: 9px; line-height: 1.5; text-align: left; width: 62%; padding-left: 0; }
+            .entete-gauche { font-size: 9px; line-height: 1.5; text-align: center; width: 62%; padding-left: 0; }
             .entete-gauche .ministere { font-weight: bold; }
-            .entete-droite { font-size: 9px; line-height: 1.5; text-align: center; width: 38%; }
+            .entete-droite { font-size: 9px; line-height: 1.5; text-align: center; width: 38%; box-sizing: border-box; padding-left: 20px; }
             .entete-droite .republique { font-weight: bold; }
             .drapeau-barre { height: 4px; margin: 4px auto; width: 80px; background: linear-gradient(to right, #f58220 0%, #f58220 33%, #ffffff 33%, #ffffff 66%, #009e49 66%, #009e49 100%); border: 1px solid #ddd; }
-            .entete-trait { border: none; border-top: 1px dashed #666; width: 130px; margin: 2px 0; }
+            .entete-trait { border: none; border-top: 1px dashed #666; width: 130px; margin: 2px auto; }
             .titre-doc { text-align: center; margin: 14px 0 4px; }
             .titre-doc .session { font-size: 15px; font-weight: bold; }
             .titre-doc .nom-doc { font-size: 13px; font-weight: bold; text-decoration: underline; margin-top: 2px; }
             .numero-reference { font-size: 10px; margin: 6px 0 12px; }
-            .signature-bloc { margin-top: 30px; text-align: right; font-size: 11px; }
+            .signature-bloc { margin-top: 30px; text-align: center; font-size: 11px; }
             .signature-bloc .fonction { margin-top: 40px; }
-            .signature-bloc .nom { font-weight: bold; text-decoration: underline; margin-top: 2px; }
+            .signature-bloc .nom { font-weight: bold; text-decoration: underline; margin-top: 30px; }
             table.doc-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
             table.doc-table th, table.doc-table td { border: 1px solid #999; padding: 4px 6px; text-align: left; font-size: 10px; }
             table.doc-table th { background: #f0f2f5; }
@@ -99,7 +99,7 @@ if (!function_exists('signatureIepp')) {
     {
         return '
             <div class="signature-bloc">
-                <div>Fait &agrave; Abidjan, le ……… / ……… / …………</div>
+                <div>Fait &agrave; Abidjan, le ' . date('d/m/Y') . '</div>
                 <div class="fonction">Le Chef de Circonscription</div>
                 <div class="nom">SYLLA ISSIAKA</div>
                 <div>Inspecteur de l\'Enseignement Pr&eacute;scolaire et Primaire</div>
