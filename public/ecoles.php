@@ -115,7 +115,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter_ecole']) || 
     $codeDsps = !empty(trim($_POST['code_dsps'])) ? trim($_POST['code_dsps']) : null;
     $statut = $_POST['statut'];
     $tuteurId = !empty($_POST['ecole_tutrice_id']) ? (int)$_POST['ecole_tutrice_id'] : null;
-    $typeRatt = $tuteurId ? ($_POST['type_rattachement'] ?? 'sans_code_dsps') : 'aucun';
+    $typeRattPost = $_POST['type_rattachement'] ?? 'aucun';
+
+    if ($typeRattPost === 'candidats_libres') {
+        // Structure non homologuée DSPS (pas de code, pas de tutrice) : ses
+        // candidats sont administrativement des candidats libres, mais elle
+        // reste gérée comme une école normale (import de liste, affectation
+        // à un centre). Toute tutrice éventuellement choisie est ignorée :
+        // ce type de rattachement est justement l'absence de tutrice.
+        $typeRatt = 'candidats_libres';
+        $tuteurId = null;
+    } else {
+        $typeRatt = $tuteurId ? ($typeRattPost ?: 'sans_code_dsps') : 'aucun';
+    }
 
     // Si l'utilisateur saisit un nom de groupe, c'est un ajustement manuel verrouillé.
     // S'il laisse vide, l'auto-détection reprendra la main au recalcul ci-dessous.
@@ -139,8 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter_ecole']) || 
     $stmtCollisionNom->execute([$nom, $idActuel]);
     $collisionNom = $stmtCollisionNom->fetch();
 
-    if (empty($codeDsps) && !$tuteurId) {
-        $error = "Cette école n'a pas de code DSPS : elle doit obligatoirement être rattachée à une école tutrice.";
+    if (empty($codeDsps) && !$tuteurId && $typeRatt !== 'candidats_libres') {
+        $error = "Cette école n'a pas de code DSPS : elle doit obligatoirement être rattachée à une école tutrice (ou déclarée comme structure de candidats libres).";
     } elseif ($collisionNom) {
         $error = "Le nom \"$nom\" est déjà utilisé par une autre école (id {$collisionNom['id']}) — choisissez un nom distinct.";
     } elseif (isset($_POST['ajouter_ecole'])) {
@@ -293,7 +305,9 @@ include '../views/layouts/header.php';
                             <td><?= $e['code_dsps'] ? '<code>'.htmlspecialchars($e['code_dsps']).'</code>' : '<span class="badge bg-danger">Aucun</span>' ?></td>
                             <td><span class="badge bg-<?= $e['statut']=='Public'?'info':'warning' ?>"><?= $e['statut'] ?></span></td>
                             <td>
-                                <?php if ($e['type_rattachement'] != 'aucun'): ?>
+                                <?php if ($e['type_rattachement'] === 'candidats_libres'): ?>
+                                    <span class="badge bg-dark" style="font-size:0.7em"><i class="bi bi-person-badge"></i> Candidats libres</span>
+                                <?php elseif ($e['type_rattachement'] != 'aucun'): ?>
                                     <small class="text-primary"><i class="bi bi-link-45deg"></i> <?= htmlspecialchars($e['nom_tuteur']) ?></small>
                                     <br><span class="badge bg-secondary" style="font-size:0.7em"><?= $e['type_rattachement'] ?></span>
                                 <?php else: ?>
@@ -430,7 +444,9 @@ include '../views/layouts/header.php';
                                 <option value="aucun">Aucun</option>
                                 <option value="sans_code_dsps" <?= ($ecoleAModifier['type_rattachement'] ?? '') == 'sans_code_dsps' ? 'selected' : '' ?>>Sans Code DSPS</option>
                                 <option value="arrimee" <?= ($ecoleAModifier['type_rattachement'] ?? '') == 'arrimee' ? 'selected' : '' ?>>École Arrimée</option>
+                                <option value="candidats_libres" <?= ($ecoleAModifier['type_rattachement'] ?? '') == 'candidats_libres' ? 'selected' : '' ?>>Structure non homologuée (candidats libres)</option>
                             </select>
+                            <small class="text-muted">"Candidats libres" ignore la tutrice choisie ci-contre et le code DSPS : structure indépendante, non soumise au DSPS.</small>
                         </div>
                     </div>
 

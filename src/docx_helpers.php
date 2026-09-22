@@ -47,11 +47,25 @@ if (!function_exists('extraireTableauDocx')) {
                 foreach ($xpath->query('.//w:t', $tc) as $t) {
                     $morceaux[] = $t->textContent;
                 }
-                $cellules[] = trim(implode('', $morceaux));
+                $cellules[] = nettoyerTexteCelluleDocx(implode('', $morceaux));
             }
             $lignes[] = $cellules;
         }
 
         return $lignes;
+    }
+}
+
+if (!function_exists('nettoyerTexteCelluleDocx')) {
+    /**
+     * Nettoie le texte d'une cellule Word : les cellules "vides" d'un modèle
+     * contiennent en réalité souvent une espace insécable (U+00A0), invisible
+     * à l'écran mais qu'un trim() ordinaire ne reconnaît pas comme vide — une
+     * ligne du modèle non remplie par le directeur serait alors traitée comme
+     * une vraie ligne de données. Convertie en espace normale avant le trim.
+     */
+    function nettoyerTexteCelluleDocx(string $texte): string
+    {
+        return trim(str_replace("\u{00A0}", ' ', $texte));
     }
 }

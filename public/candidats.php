@@ -3,9 +3,63 @@ session_start();
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/groupe_scolaire_helpers.php';
+require_once __DIR__ . '/../src/docx_helpers.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 $pageTitle = 'Gestion des Candidats CEPE';
+
+/**
+ * Interprète une date de naissance venant d'un import (Excel ou Word) :
+ * numéro de série Excel, ou texte JJ/MM/AAAA (format le plus courant dans
+ * les documents français) — reconnu explicitement plutôt que laissé à
+ * strtotime(), qui interprète un texte ambigu à l'américaine (MM/JJ/AAAA)
+ * et peut donc inverser jour et mois en silence.
+ */
+function parserDateNaissanceImport($valeurBrute): ?string
+{
+    if (empty($valeurBrute)) {
+        return null;
+    }
+    if (is_numeric($valeurBrute)) {
+        return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($valeurBrute)->format('Y-m-d');
+    }
+    $texte = trim((string) $valeurBrute);
+    if (preg_match('#^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$#', $texte, $m)) {
+        return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
+    }
+    $timestamp = strtotime($texte);
+    return $timestamp ? date('Y-m-d', $timestamp) : null;
+}
+
+/**
+ * Reconstitue, à partir du tableau du modèle Word "Liste nominative des
+ * candidats", des lignes compatibles avec l'ordre de colonnes de l'import
+ * Excel (Nom, Prénoms, Sexe, Nationalité, DateNaiss, LieuNaiss, Matricule,
+ * Acte, StatutDemande, NomÉcole, CodeDSPSÉcole) — École et CodeDSPS ne sont
+ * pas des colonnes du fichier Word (un fichier = une école) : fournies par
+ * l'appelant, déjà choisies dans le formulaire d'import.
+ *
+ * @return array<int, array<int, string>>
+ */
+function mapperLignesDocxCandidats(array $lignesDocx, string $nomEcole, ?string $codeDsps): array
+{
+    // La 1ʳᵉ ligne du tableau Word est l'en-tête : les données commencent à la ligne 1.
+    $donnees = array_slice($lignesDocx, 1);
+
+    $rows = [];
+    foreach ($donnees as $ligne) {
+        // N°, NOM, PRENOMS, SEXE, NATIONALITE, DATE DE NAI., LIEU DE NAI., MATRICULE, ACTE DE NAI.
+        [$nom, $prenoms, $sexe, $nationalite, $dateNaiss, $lieuNaiss, $matricule, $acte] = array_pad(array_slice($ligne, 1, 8), 8, '');
+
+        if (trim($nom) === '') {
+            continue; // ligne vide du modèle, non remplie par le directeur
+        }
+
+        $rows[] = [$nom, $prenoms, $sexe, $nationalite, $dateNaiss, $lieuNaiss, $matricule, $acte, '', $nomEcole, $codeDsps ?? ''];
+    }
+
+    return $rows;
+}
 
 // Les candidats sont rattachés à l'année scolaire consultée ($anneeId, résolu par
 // config/database.php). Toute écriture est bloquée si cette année est archivée.
@@ -19,9 +73,33 @@ if ($anneeLectureSeule && ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET[
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])) {
     if (isset($_FILES['fichier_candidats']) && $_FILES['fichier_candidats']['error'] === 0) {
         try {
-            $spreadsheet = IOFactory::load($_FILES['fichier_candidats']['tmp_name']);
-            $rows = $spreadsheet->getActiveSheet()->toArray();
-            array_shift($rows); // Saute en-tête
+            $nomFichierCandidats = $_FILES['fichier_candidats']['name'];
+            $extensionCandidats = strtolower(pathinfo($nomFichierCandidats, PATHINFO_EXTENSION));
+            $ecoleIdImportDocx = !empty($_POST['ecole_id_import_docx']) ? (int) $_POST['ecole_id_import_docx'] : null;
+
+            if ($extensionCandidats === 'docx') {
+                // Fichier Word envoyé tel quel par le directeur (modèle officiel
+                // "Liste nominative des candidats") : lu directement, sans
+                // conversion préalable en Excel — un fichier = une école,
+                // choisie dans le formulaire d'import (le fichier ne porte pas
+                // cette information, à la différence de l'import Excel).
+                if (!$ecoleIdImportDocx) {
+                    throw new Exception("Choisissez l'école concernée avant d'importer un fichier Word.");
+                }
+                $stmtEcoleDocx = $pdo->prepare("SELECT nom, code_dsps FROM ecoles WHERE id = ?");
+                $stmtEcoleDocx->execute([$ecoleIdImportDocx]);
+                $ecoleDocx = $stmtEcoleDocx->fetch();
+                if (!$ecoleDocx) {
+                    throw new Exception("École introuvable.");
+                }
+
+                $lignesDocx = extraireTableauDocx($_FILES['fichier_candidats']['tmp_name']);
+                $rows = mapperLignesDocxCandidats($lignesDocx, $ecoleDocx['nom'], $ecoleDocx['code_dsps']);
+            } else {
+                $spreadsheet = IOFactory::load($_FILES['fichier_candidats']['tmp_name']);
+                $rows = $spreadsheet->getActiveSheet()->toArray();
+                array_shift($rows); // Saute en-tête
+            }
 
             $nbAjouts = 0; $nbMajs = 0; $nbEcolesRenommees = 0; $erreurs = [];
 
@@ -43,16 +121,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                     $sexe = (strtoupper(trim($row[2] ?? '')) === 'F') ? 'F' : 'M';
                     $nationalite = trim($row[3] ?? '') ?: null;
 
-                    // Gestion Date Naissance (Excel serial ou string)
-                    $dateNaissRaw = $row[4] ?? null;
-                    $dateNaiss = null;
-                    if (!empty($dateNaissRaw)) {
-                        if (is_numeric($dateNaissRaw)) {
-                            $dateNaiss = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($dateNaissRaw)->format('Y-m-d');
-                        } else {
-                            $dateNaiss = date('Y-m-d', strtotime($dateNaissRaw));
-                        }
-                    }
+                    // Gestion Date Naissance (numéro de série Excel ou texte JJ/MM/AAAA)
+                    $dateNaiss = parserDateNaissanceImport($row[4] ?? null);
 
                     $lieuNaiss = trim($row[5] ?? '');
                     $matricule = !empty(trim($row[6] ?? '')) ? trim($row[6]) : null;
@@ -574,19 +644,37 @@ include '../views/layouts/header.php';
     <div class="modal-dialog modal-lg">
         <form method="POST" enctype="multipart/form-data">
             <div class="modal-content">
-                <div class="modal-header bg-success text-white"><h5>Importer Liste Élèves (Excel)</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+                <div class="modal-header bg-success text-white"><h5>Importer Liste Élèves</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
                     <p>Le système mettra à jour les élèves existants (même matricule, ou même nom/prénom/date de naissance/école) et ajoutera les nouveaux.</p>
-                    <p class="small"><strong>Colonnes requises :</strong></p>
-                    <ol class="small">
-                        <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Nationalité</li>
-                        <li>Date Naissance (JJ/MM/AAAA)</li>
-                        <li>Lieu Naissance</li><li>Matricule DSPS (laisser vide si aucun)</li>
-                        <li>Acte Naissance (O/N)</li><li>Statut Demande (non_entamee/en_cours/faite)</li>
-                        <li>Nom École (ou écrire <strong>LIBRE</strong> pour candidat libre)</li>
-                        <li>Code DSPS de l'école (optionnel — utilisé en priorité pour retrouver l'école si renseigné, plus fiable qu'un nom)</li>
-                    </ol>
-                    <input type="file" name="fichier_candidats" class="form-control" accept=".xlsx,.xls" required>
+
+                    <div id="blocEcoleImportCandidatsDocx" class="mb-3" style="display:none;">
+                        <label class="form-label">École concernée par ce fichier Word</label>
+                        <select name="ecole_id_import_docx" class="form-select">
+                            <option value="">-- Choisir l'école --</option>
+                            <?php foreach ($ecoles as $e): ?>
+                                <option value="<?= $e['id'] ?>"><?= htmlspecialchars($e['nom']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Un fichier Word (une école, sans colonne École dans le tableau) : indique ici de quelle école il s'agit.</small>
+                    </div>
+
+                    <div id="blocColonnesExcelCandidats">
+                        <p class="small"><strong>Colonnes requises (fichier Excel) :</strong></p>
+                        <ol class="small">
+                            <li>Nom</li><li>Prénoms</li><li>Sexe (M/F)</li><li>Nationalité</li>
+                            <li>Date Naissance (JJ/MM/AAAA)</li>
+                            <li>Lieu Naissance</li><li>Matricule DSPS (laisser vide si aucun)</li>
+                            <li>Acte Naissance (O/N)</li><li>Statut Demande (non_entamee/en_cours/faite)</li>
+                            <li>Nom École (ou écrire <strong>LIBRE</strong> pour candidat libre)</li>
+                            <li>Code DSPS de l'école (optionnel — utilisé en priorité pour retrouver l'école si renseigné, plus fiable qu'un nom)</li>
+                        </ol>
+                    </div>
+                    <p class="small text-muted">
+                        <i class="bi bi-file-earmark-word"></i>
+                        Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste nominative des candidats" — est accepté tel quel, sans conversion en Excel. Statut Demande, absent du modèle Word, est déduit automatiquement de la présence du matricule.
+                    </p>
+                    <input type="file" name="fichier_candidats" id="inputFichierCandidats" class="form-control" accept=".xlsx,.xls,.docx" required onchange="ajusterImportCandidats()">
                 </div>
                 <div class="modal-footer"><button type="submit" name="importer_candidats" class="btn btn-success">Lancer Import</button></div>
             </div>
@@ -688,6 +776,19 @@ document.addEventListener('change', async function (evenement) {
         alert("Erreur réseau : le centre n'a pas pu être enregistré.");
     }
 });
+
+// Modal Import : le sélecteur d'école n'a de sens que pour un fichier Word
+// (une école par fichier) — un fichier Excel porte sa propre colonne École.
+function ajusterImportCandidats() {
+    var fichier = document.getElementById('inputFichierCandidats').files[0];
+    var estDocx = fichier && /\.docx$/i.test(fichier.name);
+
+    var blocEcole = document.getElementById('blocEcoleImportCandidatsDocx');
+    blocEcole.style.display = estDocx ? '' : 'none';
+    blocEcole.querySelector('select').required = estDocx;
+
+    document.getElementById('blocColonnesExcelCandidats').style.display = estDocx ? 'none' : '';
+}
 
 function toggleEcoleSelect() {
     const isLibre = document.getElementById('checkLibre').checked;
