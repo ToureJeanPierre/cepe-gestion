@@ -22,6 +22,8 @@ if ($anneeLectureSeule && ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET[
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter']) || isset($_POST['modifier']))) {
     $nom = trim($_POST['nom'] ?? '');
     $prenoms = trim($_POST['prenoms'] ?? '');
+    $ecole = trim($_POST['ecole'] ?? '') ?: null;
+    $contact = trim($_POST['contact'] ?? '') ?: null;
     $nature = $_POST['nature_examen'] ?? '';
     $observations = trim($_POST['observations'] ?? '') ?: 'POUR ATTRIBUTION';
 
@@ -37,12 +39,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter']) || isset(
         $piecesJson = json_encode($pieces, JSON_UNESCAPED_UNICODE);
 
         if (isset($_POST['ajouter'])) {
-            $stmt = $pdo->prepare("INSERT INTO cap_ceap_candidats (annee_id, nature_examen, nom, prenoms, pieces_json, observations) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$anneeId, $nature, $nom, $prenoms, $piecesJson, $observations]);
+            $stmt = $pdo->prepare("INSERT INTO cap_ceap_candidats (annee_id, nature_examen, nom, prenoms, ecole, contact, pieces_json, observations) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$anneeId, $nature, $nom, $prenoms, $ecole, $contact, $piecesJson, $observations]);
         } else {
             $id = (int) $_POST['id'];
-            $stmt = $pdo->prepare("UPDATE cap_ceap_candidats SET nature_examen=?, nom=?, prenoms=?, pieces_json=?, observations=? WHERE id=? AND annee_id=?");
-            $stmt->execute([$nature, $nom, $prenoms, $piecesJson, $observations, $id, $anneeId]);
+            $stmt = $pdo->prepare("UPDATE cap_ceap_candidats SET nature_examen=?, nom=?, prenoms=?, ecole=?, contact=?, pieces_json=?, observations=? WHERE id=? AND annee_id=?");
+            $stmt->execute([$nature, $nom, $prenoms, $ecole, $contact, $piecesJson, $observations, $id, $anneeId]);
         }
         header("Location: cap_ceap.php");
         exit;
@@ -79,6 +81,8 @@ if (isset($_GET['modifier'])) {
     $stmt->execute([(int) $_GET['modifier'], $anneeId]);
     $candidatAModifier = $stmt->fetch();
 }
+
+$nomsEcoles = $pdo->query("SELECT nom FROM ecoles ORDER BY nom ASC")->fetchAll(PDO::FETCH_COLUMN);
 
 include '../views/layouts/header.php';
 ?>
@@ -118,7 +122,7 @@ include '../views/layouts/header.php';
     <div class="card-body p-0 table-responsive">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
-                <tr><th>Nom</th><th>Prénoms</th><th>Nature de l'examen</th><th>Pièces fournies</th><th>Observations</th><th>Actions</th></tr>
+                <tr><th>Nom</th><th>Prénoms</th><th>École</th><th>Contact</th><th>Nature de l'examen</th><th>Pièces fournies</th><th>Observations</th><th>Actions</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($candidats as $c): ?>
@@ -130,6 +134,8 @@ include '../views/layouts/header.php';
                     <tr>
                         <td><strong><?= htmlspecialchars($c['nom']) ?></strong></td>
                         <td><?= htmlspecialchars($c['prenoms']) ?></td>
+                        <td><?= htmlspecialchars($c['ecole'] ?? '') ?: '<span class="text-muted">—</span>' ?></td>
+                        <td><?= htmlspecialchars($c['contact'] ?? '') ?: '<span class="text-muted">—</span>' ?></td>
                         <td><?= htmlspecialchars(CAP_CEAP_NATURES[$c['nature_examen']] ?? $c['nature_examen']) ?></td>
                         <td>
                             <span class="badge bg-<?= $nbFournies === $nbTotal ? 'success' : 'warning text-dark' ?>"><?= $nbFournies ?> / <?= $nbTotal ?></span>
@@ -142,7 +148,7 @@ include '../views/layouts/header.php';
                     </tr>
                 <?php endforeach; ?>
                 <?php if (!$candidats): ?>
-                    <tr><td colspan="6" class="text-muted text-center py-3">Aucun candidat CAP/CEAP enregistré.</td></tr>
+                    <tr><td colspan="8" class="text-muted text-center py-3">Aucun candidat CAP/CEAP enregistré.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -166,6 +172,19 @@ include '../views/layouts/header.php';
                 <div class="mb-3">
                     <label class="form-label">Prénoms</label>
                     <input type="text" name="prenoms" class="form-control" value="<?= htmlspecialchars($candidatAModifier['prenoms'] ?? '') ?>" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">École</label>
+                    <input type="text" name="ecole" class="form-control" list="listeEcoles" placeholder="Choisir dans la liste ou saisir librement" value="<?= htmlspecialchars($candidatAModifier['ecole'] ?? '') ?>">
+                    <datalist id="listeEcoles">
+                        <?php foreach ($nomsEcoles as $nomEcole): ?>
+                            <option value="<?= htmlspecialchars($nomEcole) ?>">
+                        <?php endforeach; ?>
+                    </datalist>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Contact</label>
+                    <input type="text" name="contact" class="form-control" value="<?= htmlspecialchars($candidatAModifier['contact'] ?? '') ?>">
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Nature de l'examen</label>
