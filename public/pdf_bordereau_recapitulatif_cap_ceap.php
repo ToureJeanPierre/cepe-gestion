@@ -14,7 +14,7 @@ $stmt->execute([$anneeId]);
 $candidats = $stmt->fetchAll();
 
 $html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '
-    .destinataire { margin: 20px 0; }
+    .destinataire { margin: 20px 0; text-align: right; }
 </style></head><body>';
 
 $html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
