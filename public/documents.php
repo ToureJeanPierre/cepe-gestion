@@ -13,7 +13,27 @@ $stmt = $pdo->prepare("SELECT id, code, libelle, ordre FROM examens WHERE annee_
 $stmt->execute([$anneeId]);
 $examens = $stmt->fetchAll();
 
-$examenId = isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : (int) ($examens[0]['id'] ?? 0);
+// Examen actif partagé entre Centres / Plan de salle / Affectations / Résultats
+// / Documents (mémorisé en session, cf. centres.php) : sans ça, ouvrir un PDF
+// depuis Documents sans avoir explicitement choisi un examen ici retombait
+// silencieusement sur le premier examen par ordre (une Composition), au lieu
+// de garder l'examen déjà sélectionné dans un autre onglet.
+if (isset($_GET['examen_id']) && (int) $_GET['examen_id'] > 0) {
+    $_SESSION['examen_actif_id'] = (int) $_GET['examen_id'];
+}
+$examenId = $_SESSION['examen_actif_id'] ?? (int) ($examens[0]['id'] ?? 0);
+
+$examenExiste = false;
+foreach ($examens as $e) {
+    if ((int) $e['id'] === $examenId) {
+        $examenExiste = true;
+        break;
+    }
+}
+if (!$examenExiste) {
+    $examenId = (int) ($examens[0]['id'] ?? 0);
+    $_SESSION['examen_actif_id'] = $examenId;
+}
 
 /*
 |--------------------------------------------------------------------------

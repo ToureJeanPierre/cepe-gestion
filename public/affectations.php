@@ -43,7 +43,16 @@ if (count($examens) === 0) {
     die("Aucun examen configuré pour l'année scolaire {$ANNEE_SCOLAIRE}.");
 }
 
-$examenId = isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : (int) $examens[0]['id'];
+// Examen actif partagé entre Centres / Plan de salle / Affectations / Résultats
+// / Documents (mémorisé en session, cf. centres.php) : ce module exclut les
+// Compositions de sa propre liste, donc si le choix mémorisé ne s'y trouve
+// pas, on retombe localement sur le premier examen affiché ici SANS écraser
+// la session partagée — sinon revenir sur Plan de salle perdrait le choix
+// d'une Composition au profit de ce repli propre à cette page.
+if (isset($_GET['examen_id']) && (int) $_GET['examen_id'] > 0) {
+    $_SESSION['examen_actif_id'] = (int) $_GET['examen_id'];
+}
+$examenId = $_SESSION['examen_actif_id'] ?? (int) $examens[0]['id'];
 
 $examenActif = null;
 foreach ($examens as $e) {

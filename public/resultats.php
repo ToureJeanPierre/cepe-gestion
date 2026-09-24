@@ -36,7 +36,15 @@ if (!$examens) {
     die("Aucun examen configuré pour cette année scolaire.");
 }
 
-$examenId = isset($_POST['examen_id']) ? (int) $_POST['examen_id'] : (isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : (int) $examens[0]['id']);
+// Examen actif partagé entre Centres / Plan de salle / Affectations / Résultats
+// / Documents (mémorisé en session, cf. centres.php).
+$examenIdChoisi = isset($_POST['examen_id'])
+    ? (int) $_POST['examen_id']
+    : (isset($_GET['examen_id']) ? (int) $_GET['examen_id'] : 0);
+if ($examenIdChoisi > 0) {
+    $_SESSION['examen_actif_id'] = $examenIdChoisi;
+}
+$examenId = $_SESSION['examen_actif_id'] ?? (int) $examens[0]['id'];
 $examenActif = null;
 foreach ($examens as $e) {
     if ((int) $e['id'] === $examenId) {
@@ -47,6 +55,7 @@ foreach ($examens as $e) {
 if (!$examenActif) {
     $examenActif = $examens[0];
     $examenId = (int) $examenActif['id'];
+    $_SESSION['examen_actif_id'] = $examenId;
 }
 $estFinal = $examenActif['code'] === 'CEPE_FINAL';
 $estComposition = estExamenTypeComposition($examenActif['code']);

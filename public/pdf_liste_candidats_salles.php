@@ -36,11 +36,10 @@ $html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '
     .page-break { page-break-before: always; }
 </style></head><body>';
 
-$html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
-$html .= titreDocumentIepp('CEPE SESSION ' . date('Y'), 'LISTE DES CANDIDATS PAR SALLE');
-$html .= '<div style="text-align:center; margin-bottom:8px;">' . htmlspecialchars($examen['libelle']) . ' — Ordre alphabétique, avec la salle de composition</div>';
-
 if (!$centres) {
+    $html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
+    $html .= titreDocumentIepp('CEPE SESSION ' . date('Y'), 'LISTE DES CANDIDATS PAR SALLE');
+    $html .= '<div style="text-align:center; margin-bottom:8px;">' . htmlspecialchars($examen['libelle']) . ' — Ordre alphabétique, avec la salle de composition</div>';
     $html .= '<p>Aucune liste disponible. Générez d\'abord le plan de salle puis la liste d\'émargement depuis le module Plans de salle.</p>';
 }
 
@@ -64,13 +63,16 @@ foreach ($centres as $centre) {
     $html .= $premiere ? '' : '<div class="page-break"></div>';
     $premiere = false;
 
+    $html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
+    $html .= titreDocumentIepp('CEPE SESSION ' . date('Y'), 'LISTE DES CANDIDATS PAR SALLE');
+    $html .= '<div style="text-align:center; margin-bottom:8px;">' . htmlspecialchars($examen['libelle']) . ' — Ordre alphabétique, avec la salle de composition</div>';
+
     $html .= '<h2>' . htmlspecialchars($centre['nom_centre']) . ' (' . count($candidats) . ' candidats)</h2>';
-    $html .= '<table class="doc-table"><thead><tr><th>#</th><th>Nom</th><th>Prénoms</th><th>Matricule</th><th class="col-salle">Salle</th></tr></thead><tbody>';
-    $i = 1;
+    $html .= '<table class="doc-table"><thead><tr><th>N&deg; de table</th><th>Nom</th><th>Prénoms</th><th>Matricule</th><th class="col-salle">Salle</th></tr></thead><tbody>';
     foreach ($candidats as $c) {
         $matricule = $c['matricule_dsps'] ?: ($c['est_candidat_libre'] ? 'Libre' : '-');
         $html .= '<tr>'
-            . '<td>' . $i++ . '</td>'
+            . '<td></td>'
             . '<td>' . htmlspecialchars($c['nom']) . '</td>'
             . '<td>' . htmlspecialchars($c['prenoms']) . '</td>'
             . '<td>' . htmlspecialchars($matricule) . '</td>'
