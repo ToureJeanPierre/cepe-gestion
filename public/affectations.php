@@ -699,41 +699,50 @@ document.addEventListener('submit', async function (evenement) {
 
     var appliquerReponse = function (texteHtml) {
         var docFrais = new DOMParser().parseFromString(texteHtml, 'text/html');
-        var carteFraiche = docFrais.getElementById(carte.id);
         var messagesFrais = docFrais.getElementById('messages-affectations');
         var messagesActuels = document.getElementById('messages-affectations');
 
-        if (!carteFraiche) {
+        if (!docFrais.getElementById(carte.id)) {
             // Réponse inattendue : on retombe sur un envoi classique plutôt
             // que de laisser l'action sans effet visible.
             formulaire.submit();
             return;
         }
 
-        // La carte entière est remplacée par sa version fraîche, ce qui
-        // effacerait aussi les choix pas encore validés dans les AUTRES
-        // selects de rôle de cette même carte (ex. un nom déjà choisi pour
-        // Président pendant qu'on valide l'ajout d'un Membre du
-        // Secrétariat). On les capture avant, puis on les réapplique après
-        // — seulement s'ils désignent toujours une option valide.
-        var valeursAvant = {};
-        carte.querySelectorAll('select[name="personnel_id"]').forEach(function (s) {
-            if (s.value) valeursAvant[s.id] = s.value;
-        });
+        // Verrouiller quelqu'un sur CE centre le retire aussi des selects de
+        // TOUS les autres centres (règle de non-redondance) : si on ne
+        // rafraîchissait que la carte du formulaire soumis, les autres
+        // cartes déjà affichées garderaient une liste périmée où cette
+        // personne resterait sélectionnable jusqu'au prochain rechargement
+        // complet. On remplace donc chaque carte actuellement affichée par
+        // sa version fraîche — en capturant/réappliquant, pour chacune, les
+        // choix pas encore validés dans ses autres selects (ex. un nom déjà
+        // choisi pour Président pendant qu'on valide l'ajout d'un Membre du
+        // Secrétariat sur la même carte), tant qu'ils désignent toujours une
+        // option valide.
+        document.querySelectorAll('[id^="centre-card-"]').forEach(function (carteActuelle) {
+            var carteFraiche = docFrais.getElementById(carteActuelle.id);
+            if (!carteFraiche) return;
 
-        carte.outerHTML = carteFraiche.outerHTML;
-
-        var carteMiseAJour = document.getElementById(carte.id);
-        if (carteMiseAJour) {
-            Object.keys(valeursAvant).forEach(function (id) {
-                var s = document.getElementById(id);
-                if (!s) return;
-                var toujoursValide = Array.prototype.some.call(s.options, function (o) {
-                    return o.value === valeursAvant[id];
-                });
-                if (toujoursValide) s.value = valeursAvant[id];
+            var valeursAvant = {};
+            carteActuelle.querySelectorAll('select[name="personnel_id"]').forEach(function (s) {
+                if (s.value) valeursAvant[s.id] = s.value;
             });
-        }
+
+            carteActuelle.outerHTML = carteFraiche.outerHTML;
+
+            var carteMiseAJour = document.getElementById(carteActuelle.id);
+            if (carteMiseAJour) {
+                Object.keys(valeursAvant).forEach(function (id) {
+                    var s = document.getElementById(id);
+                    if (!s) return;
+                    var toujoursValide = Array.prototype.some.call(s.options, function (o) {
+                        return o.value === valeursAvant[id];
+                    });
+                    if (toujoursValide) s.value = valeursAvant[id];
+                });
+            }
+        });
 
         if (messagesFrais && messagesActuels) {
             messagesActuels.outerHTML = messagesFrais.outerHTML;
