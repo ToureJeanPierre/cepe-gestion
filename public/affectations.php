@@ -601,25 +601,67 @@ include '../views/layouts/header.php';
 // Secrétariat, Membres du Secrétariat) : ne montre que les options dont
 // data-groupe correspond à la catégorie choisie, pour retrouver un nom plus
 // vite dans une longue liste. "Toutes catégories" réaffiche tout.
+function optionVisibleSelonFiltre(select, option) {
+    var filtre = document.querySelector('.filtre-categorie-personnel[data-cible="' + select.id + '"]');
+    if (!filtre || !filtre.value) return true;
+    return option.dataset.groupe === filtre.value;
+}
+
+function estSelectSuperviseur(select) {
+    return select.id.indexOf('selectSuperviseur') === 0;
+}
+
+// Une même personne ne doit jamais rester sélectionnable pour deux rôles à
+// la fois sur cette page — même si le serveur refuse déjà la deuxième
+// affectation à l'enregistrement (règle de non-redondance), la choisir dans
+// deux selects avant de valider prête à confusion sur celle qui "gagnera".
+// Dès qu'elle est choisie quelque part, elle disparaît des autres selects
+// tant qu'elle n'est pas retirée d'ici — sauf entre selects Superviseur,
+// où une même personne peut légitimement couvrir plusieurs centres.
+function actualiserExclusionsPersonnel() {
+    var tousLesSelects = document.querySelectorAll('select[name="personnel_id"]');
+    var choisisPar = {};
+    tousLesSelects.forEach(function (s) {
+        if (!s.value) return;
+        choisisPar[s.value] = choisisPar[s.value] || [];
+        choisisPar[s.value].push(s);
+    });
+
+    tousLesSelects.forEach(function (select) {
+        var valeurActuelle = select.value;
+        Array.prototype.forEach.call(select.options, function (option) {
+            if (!option.value) return; // "— Choisir —"
+
+            var exclue = false;
+            (choisisPar[option.value] || []).forEach(function (autreSelect) {
+                if (autreSelect === select) return;
+                if (estSelectSuperviseur(select) && estSelectSuperviseur(autreSelect)) return;
+                exclue = true;
+            });
+
+            var visible = optionVisibleSelonFiltre(select, option) && !exclue;
+            option.hidden = !visible;
+            option.disabled = !visible;
+        });
+    });
+}
+
 document.addEventListener('change', function (evenement) {
-    var filtre = evenement.target;
-    if (!filtre.classList || !filtre.classList.contains('filtre-categorie-personnel')) {
+    var cible = evenement.target;
+
+    if (cible.classList && cible.classList.contains('filtre-categorie-personnel')) {
+        var select = document.getElementById(cible.dataset.cible);
+        if (select) select.value = '';
+        actualiserExclusionsPersonnel();
         return;
     }
 
-    var cible = document.getElementById(filtre.dataset.cible);
-    if (!cible) return;
-
-    var groupeChoisi = filtre.value;
-    cible.value = '';
-
-    Array.prototype.forEach.call(cible.options, function (option) {
-        if (!option.value) return; // "— Choisir —"
-        var visible = !groupeChoisi || option.dataset.groupe === groupeChoisi;
-        option.hidden = !visible;
-        option.disabled = !visible;
-    });
+    if (cible.matches && cible.matches('select[name="personnel_id"]')) {
+        actualiserExclusionsPersonnel();
+    }
 });
+
+document.addEventListener('DOMContentLoaded', actualiserExclusionsPersonnel);
 </script>
 
 <?php include '../views/layouts/footer.php'; ?>
