@@ -63,6 +63,8 @@ function recupererExamen(PDO $pdo, int $examenId, int $anneeId): ?array
 |--------------------------------------------------------------------------
 */
 
+$examenIdPost = 0;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     /*
@@ -1240,6 +1242,41 @@ if ($examenSelectionneId > 0) {
     }
 }
 
+/*
+|--------------------------------------------------------------------------
+| ÉCARTS EFFECTIF / RÉPARTITION — détection proactive, avant la répartition
+|--------------------------------------------------------------------------
+| Deux origines distinctes pour un même symptôme (un total qui "ne colle
+| pas") :
+|   - écart manuel  : l'effectif retenu (onglet Centres, modifiable à la
+|     main) ne correspond plus au décompte réel des candidats (onglet
+|     Candidats, recalculé en continu) — l'effectif retenu est resté figé
+|     après une saisie manuelle pendant que les candidats évoluaient.
+|   - écart plan    : un plan de salle a déjà été généré, mais l'effectif
+|     retenu a changé depuis (nouveaux candidats, correction) sans que le
+|     plan soit régénéré — les salles reflètent alors un total périmé.
+| Affiché en permanence (pas seulement après une génération) pour que
+| l'écart soit visible avant de lancer/valider une répartition.
+*/
+$centresEcartEffectif = [];
+foreach ($plans as $p) {
+    $sommeSalles = array_sum(array_column($p['salles'], 'effectif_retenu'));
+    $nbSalles = count($p['salles']);
+
+    $ecartManuel = $p['effectif_est_manuel'] && $p['effectif_calcule'] !== $p['effectif_retenu'];
+    $ecartPlan = $nbSalles > 0 && $sommeSalles !== $p['effectif_retenu'];
+
+    if ($ecartManuel || $ecartPlan) {
+        $centresEcartEffectif[] = [
+            'nom' => $p['nom_centre'],
+            'effectif_calcule' => $p['effectif_calcule'],
+            'effectif_retenu' => $p['effectif_retenu'],
+            'somme_salles' => $sommeSalles,
+            'ecart_manuel' => $ecartManuel,
+            'ecart_plan' => $ecartPlan,
+        ];
+    }
+}
 
 include '../views/layouts/header.php';
 
@@ -1351,6 +1388,50 @@ include '../views/layouts/header.php';
     <?php endif; ?>
 
     </div>
+
+
+    <!-- =========================================================
+         ÉCARTS EFFECTIF / RÉPARTITION (toujours visible, avant la
+         répartition — pas seulement après une génération)
+    ========================================================== -->
+
+    <?php if (!empty($centresEcartEffectif)): ?>
+
+        <div class="alert alert-danger">
+
+            <h5 class="mb-2">
+                <i class="bi bi-exclamation-octagon"></i>
+                <?= count($centresEcartEffectif) ?> centre(s) à vérifier avant la répartition
+            </h5>
+
+            <p class="mb-2">
+                Pour ces centres, l'effectif retenu ne correspond plus soit au
+                décompte réel des candidats, soit au plan de salle déjà
+                généré. Vérifiez et choisissez la valeur à retenir avant de
+                vous fier à la répartition.
+            </p>
+
+            <ul class="mb-0">
+                <?php foreach ($centresEcartEffectif as $ec): ?>
+                    <li>
+                        <strong><?= htmlspecialchars($ec['nom']) ?></strong> :
+                        <?php if ($ec['ecart_manuel']): ?>
+                            effectif retenu manuellement (<?= $ec['effectif_retenu'] ?>)
+                            ≠ décompte actuel des candidats (<?= $ec['effectif_calcule'] ?>).
+                        <?php endif; ?>
+                        <?php if ($ec['ecart_manuel'] && $ec['ecart_plan']): ?> Et <?php endif; ?>
+                        <?php if ($ec['ecart_plan']): ?>
+                            le plan de salle généré (<?= $ec['somme_salles'] ?> au total)
+                            ne correspond plus à l'effectif retenu (<?= $ec['effectif_retenu'] ?>)
+                            — régénérez ce centre.
+                        <?php endif; ?>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+
+        </div>
+
+    <?php endif; ?>
 
 
     <!-- =========================================================
