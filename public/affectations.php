@@ -303,6 +303,8 @@ include '../views/layouts/header.php';
         </div>
     </div>
 
+    <div id="messages-affectations">
+
     <?php if ($success): ?>
         <div class="alert alert-success alert-dismissible fade show">
             <i class="bi bi-check-circle"></i> <?= htmlspecialchars($success) ?>
@@ -328,6 +330,8 @@ include '../views/layouts/header.php';
             <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
         </div>
     <?php endif; ?>
+
+    </div>
 
     <!-- =========================================================
          SÉLECTEUR D'EXAMEN
@@ -400,7 +404,7 @@ include '../views/layouts/header.php';
             fn ($p) => !in_array((int) $p['id'], $superviseursIdsCentre, true)
         ));
     ?>
-    <div class="card mb-4">
+    <div class="card mb-4" id="centre-card-<?= $centreId ?>">
         <div class="card-header d-flex justify-content-between align-items-center">
             <div>
                 <strong><?= htmlspecialchars($c['ecole_nom']) ?></strong>
@@ -662,6 +666,107 @@ document.addEventListener('change', function (evenement) {
 });
 
 document.addEventListener('DOMContentLoaded', actualiserExclusionsPersonnel);
+</script>
+
+<script>
+// Chaque rôle (Président, Chef de Secrétariat, un Membre du Secrétariat,
+// Superviseur, Surveillant manuel...) a son propre petit formulaire sur la
+// page : sans interception, valider L'UN d'eux recharge toute la page et
+// efface les choix pas encore validés dans les AUTRES selects (ex. avoir
+// déjà choisi un nom pour le Président avant de cliquer "+" pour ajouter un
+// Membre du Secrétariat). Même mécanisme que sur Plans de salle : seule la
+// carte du centre concerné (et la zone de messages) est remplacée par sa
+// version fraîchement rendue par le serveur, sans rechargement complet.
+document.addEventListener('submit', async function (evenement) {
+
+    if (evenement.defaultPrevented) {
+        return;
+    }
+
+    var formulaire = evenement.target;
+    var carte = formulaire.closest('[id^="centre-card-"]');
+
+    if (!carte) {
+        return;
+    }
+
+    evenement.preventDefault();
+
+    var donnees = new FormData(formulaire);
+    if (evenement.submitter && evenement.submitter.name) {
+        donnees.append(evenement.submitter.name, evenement.submitter.value || '1');
+    }
+
+    var appliquerReponse = function (texteHtml) {
+        var docFrais = new DOMParser().parseFromString(texteHtml, 'text/html');
+        var carteFraiche = docFrais.getElementById(carte.id);
+        var messagesFrais = docFrais.getElementById('messages-affectations');
+        var messagesActuels = document.getElementById('messages-affectations');
+
+        if (!carteFraiche) {
+            // Réponse inattendue : on retombe sur un envoi classique plutôt
+            // que de laisser l'action sans effet visible.
+            formulaire.submit();
+            return;
+        }
+
+        // La carte entière est remplacée par sa version fraîche, ce qui
+        // effacerait aussi les choix pas encore validés dans les AUTRES
+        // selects de rôle de cette même carte (ex. un nom déjà choisi pour
+        // Président pendant qu'on valide l'ajout d'un Membre du
+        // Secrétariat). On les capture avant, puis on les réapplique après
+        // — seulement s'ils désignent toujours une option valide.
+        var valeursAvant = {};
+        carte.querySelectorAll('select[name="personnel_id"]').forEach(function (s) {
+            if (s.value) valeursAvant[s.id] = s.value;
+        });
+
+        carte.outerHTML = carteFraiche.outerHTML;
+
+        var carteMiseAJour = document.getElementById(carte.id);
+        if (carteMiseAJour) {
+            Object.keys(valeursAvant).forEach(function (id) {
+                var s = document.getElementById(id);
+                if (!s) return;
+                var toujoursValide = Array.prototype.some.call(s.options, function (o) {
+                    return o.value === valeursAvant[id];
+                });
+                if (toujoursValide) s.value = valeursAvant[id];
+            });
+        }
+
+        if (messagesFrais && messagesActuels) {
+            messagesActuels.outerHTML = messagesFrais.outerHTML;
+        }
+
+        actualiserExclusionsPersonnel();
+    };
+
+    try {
+        // Pas de "formulaire.action" ici : chaque formulaire de ce fichier a
+        // un champ caché <input name="action"> (affecter_role, supprimer...)
+        // qui masque la propriété native form.action du DOM (elle renvoie
+        // alors cet élément au lieu de l'URL). Aucun de ces formulaires n'a
+        // d'attribut HTML action= — ils visent donc tous la page courante.
+        var urlCible = formulaire.getAttribute('action') || window.location.href;
+        var reponse = await fetch(urlCible, {
+            method: 'POST',
+            body: donnees
+        });
+
+        if (!reponse.ok) {
+            throw new Error('HTTP ' + reponse.status);
+        }
+
+        appliquerReponse(await reponse.text());
+
+    } catch (erreur) {
+        // Souci réseau ou serveur : on retombe sur le comportement classique
+        // (rechargement complet) pour ne jamais bloquer l'utilisateur.
+        formulaire.submit();
+    }
+
+}, false);
 </script>
 
 <?php include '../views/layouts/footer.php'; ?>
