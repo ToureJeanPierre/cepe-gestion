@@ -95,36 +95,103 @@ function normaliserSexeDocx(string $texte): string
 }
 
 /**
+ * Sépare une cellule "NOM & PRENOMS" combinée (modèle où les deux ne sont
+ * pas dans des colonnes séparées) en Nom/Prénoms — meilleur effort, à
+ * vérifier après import : le nom est le premier mot (après un éventuel
+ * titre Mme/M./Mlle), complété par "NEE ..." quand ce marqueur suit
+ * immédiatement (nom d'épouse + nom de jeune fille tous deux dans la
+ * cellule Nom, comme le fait déjà l'application pour les fichiers à
+ * colonnes séparées où ce genre de mention est tapée directement dans la
+ * cellule Nom). Ex. "Mme HUIZAN née GUIE EDITH MARIE HELENE" -> Nom
+ * "HUIZAN née GUIE", Prénoms "EDITH MARIE HELENE".
+ *
+ * Cette colonne combinée ne laisse pas de place à une colonne Sexe séparée
+ * (cf. mapperLignesDocxPersonnel ci-dessous) : le titre Mme/M./Mlle, quand
+ * il est présent, et la mention "née" (jamais portée que par une femme
+ * dans ces fichiers) servent de meilleur indice disponible.
+ *
+ * @return array{0: string, 1: string, 2: string} [nom, prénoms, sexe ('M'/'F'/'')]
+ */
+function separerNomPrenoms(string $texte): array
+{
+    $texte = trim($texte);
+    $sexe = '';
+    if (preg_match('/^(MME|MLLE)\s+/iu', $texte)) {
+        $sexe = 'F';
+    } elseif (preg_match('/^M\.?\s+/u', $texte)) {
+        $sexe = 'M';
+    }
+    $texte = trim((string) preg_replace('/^(MME|M\.?|MLLE)\s+/iu', '', $texte));
+
+    $mots = preg_split('/\s+/u', $texte, -1, PREG_SPLIT_NO_EMPTY);
+
+    if (count($mots) <= 1) {
+        return [$texte, '', $sexe];
+    }
+
+    $aUneMentionNee = isset($mots[1], $mots[2]) && in_array(mb_strtoupper($mots[1]), ['NEE', 'NÉE'], true);
+    $indexFin = $aUneMentionNee ? 3 : 1;
+    if ($aUneMentionNee) {
+        $sexe = 'F'; // seule une femme porte une mention "née [nom de jeune fille]"
+    }
+
+    return [
+        implode(' ', array_slice($mots, 0, $indexFin)),
+        implode(' ', array_slice($mots, $indexFin)),
+        $sexe,
+    ];
+}
+
+/**
  * Reconstitue, à partir du tableau du modèle Word, des lignes compatibles
  * avec l'ordre de colonnes de l'import Excel (Nom, Prénoms, Sexe, Téléphone,
  * Identifiant, NiveauTenu, Emploi, Fonction, Disponibilité) — Disponibilité
  * n'existe pas sur la fiche Word et reste vide (valeur par défaut déjà
  * gérée plus loin dans l'import).
  *
+ * Deux modèles réels rencontrés, détectés à partir de l'en-tête :
+ *   - standard : 2 lignes d'en-tête, Nom/Prénoms/Sexe en colonnes séparées.
+ *     La colonne Corps et grade existe même pour les écoles privées
+ *     (souvent laissée vide par le directeur) : même disposition pour
+ *     Public et Privé, plus besoin de distinguer les deux ici.
+ *   - à colonnes combinées ("NOM & PRENOMS" ou "NOM ET PRENOMS" en un seul
+ *     en-tête) : une seule ligne d'en-tête, pas de colonne Sexe séparée.
+ *
  * @return array<int, array<int, string>>
  */
-function mapperLignesDocxPersonnel(array $lignesDocx, string $typeEcole): array
+function mapperLignesDocxPersonnel(array $lignesDocx): array
 {
-    // Les 2 premières lignes du tableau Word sont les en-têtes (dont la
-    // sous-ligne 1erEB/2eEB/6e/3eouTle) : les données commencent à la ligne 2.
-    $donnees = array_slice($lignesDocx, 2);
+    if (empty($lignesDocx)) {
+        return [];
+    }
+
+    $texteEntete = mb_strtoupper(implode(' | ', $lignesDocx[0]));
+    $nomEtPrenomsCombines = str_contains($texteEntete, 'NOM & PRENOM') || str_contains($texteEntete, 'NOM ET PRENOM');
+
+    // Une vraie sous-ligne d'en-tête (ex. la répartition 1erEB/2eEB/6e du
+    // bloc Surveillance) a sa colonne N° vide ; une ligne de données a un
+    // numéro d'ordre. Évite de supposer un nombre fixe de lignes d'en-tête.
+    $premiereCelluleLigne2 = trim((string) ($lignesDocx[1][0] ?? ''));
+    $donnees = array_slice($lignesDocx, $premiereCelluleLigne2 === '' ? 2 : 1);
 
     $rows = [];
     foreach ($donnees as $ligne) {
-        if ($typeEcole === 'Privé') {
-            // N°, NOM, PRENOMS, SEXE, N°AUTORISATION, FONCTION, COURSTENU, CONTACT, ...
-            [$nom, $prenoms, $sexeRaw, $identifiant, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 7), 7, '');
-            $emploi = '';
+        if ($nomEtPrenomsCombines) {
+            // N°, NOM & PRENOMS, MATRICULE, CORPS ET GRADE, FONCTION, COURS TENU, CONTACT, ...
+            [$nomPrenoms, $identifiant, $corpsGrade, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 6), 6, '');
+            if (trim($nomPrenoms) === '') {
+                continue; // ligne vide du modèle, non remplie par le directeur
+            }
+            [$nom, $prenoms, $sexeRaw] = separerNomPrenoms($nomPrenoms);
         } else {
-            // N°, NOM, PRENOMS, SEXE, MATRICULE, CORPS&GRADE, FONCTION, COURSTENU, CONTACT, ...
+            // N°, NOM, PRENOMS, SEXE, MATRICULE/N°AUTORISATION, CORPS&GRADE, FONCTION, COURSTENU, CONTACT, ...
             [$nom, $prenoms, $sexeRaw, $identifiant, $corpsGrade, $fonction, $coursTenu, $contact] = array_pad(array_slice($ligne, 1, 8), 8, '');
-            $emploi = deviverEmploiDepuisCorpsGrade($corpsGrade) ?? '';
+            if (trim($nom) === '') {
+                continue; // ligne vide du modèle, non remplie par le directeur
+            }
         }
 
-        if (trim($nom) === '') {
-            continue; // ligne vide du modèle, non remplie par le directeur
-        }
-
+        $emploi = deviverEmploiDepuisCorpsGrade($corpsGrade) ?? '';
         $rows[] = [$nom, $prenoms, normaliserSexeDocx($sexeRaw), $contact, $identifiant, $coursTenu, $emploi, $fonction, ''];
     }
 
@@ -217,7 +284,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                 // officiel de liste des enseignants) : lu directement, sans
                 // conversion préalable en Excel.
                 $lignesDocx = extraireTableauDocx($_FILES['fichier_personnel']['tmp_name']);
-                $rows = mapperLignesDocxPersonnel($lignesDocx, $typeEcoleImport);
+                $rows = mapperLignesDocxPersonnel($lignesDocx);
             } else {
                 $spreadsheet = IOFactory::load($_FILES['fichier_personnel']['tmp_name']);
                 $rowsBrut = $spreadsheet->getActiveSheet()->toArray();
@@ -257,7 +324,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                     $telephone = trim($row[3] ?? '');
                     $identifiant = trim($row[4] ?? '') ?: null;
 
-                    $niveauVal = in_array(trim($row[5] ?? ''), NIVEAUX) ? trim($row[5]) : null;
+                    // Comparaison insensible à la casse : un directeur tape parfois
+                    // "Cp2" ou "cm1" au lieu de "CP2"/"CM1".
+                    $niveauBrut = trim($row[5] ?? '');
+                    $niveauIndex = array_search(strtoupper($niveauBrut), array_map('strtoupper', NIVEAUX), true);
+                    $niveauVal = $niveauIndex !== false ? NIVEAUX[$niveauIndex] : null;
                     $emploiVal = in_array(strtoupper(trim($row[6] ?? '')), ['IO', 'IA']) ? strtoupper(trim($row[6])) : null;
 
                     $fonctionRaw = trim($row[7] ?? '');
@@ -307,7 +378,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
 
                     if ($categorieImport === 'enseignant') {
                         // La liste d'une école ne distingue que Directeur / Adjoint.
-                        $fonction = stripos($fonctionRaw, 'directeur') === 0 ? 'Directeur' : 'Adjoint';
+                        // "direct" (et non "directeur") pour reconnaître aussi la forme
+                        // féminine "Directrice", fréquente dans les fichiers réels.
+                        $fonction = stripos($fonctionRaw, 'direct') === 0 ? 'Directeur' : 'Adjoint';
 
                         if ($typeEcole === 'Privé') {
                             $emploiVal = 'IA'; // automatique en privé

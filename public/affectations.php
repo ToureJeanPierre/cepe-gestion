@@ -209,7 +209,8 @@ function vivierParCategorie(PDO $pdo, array $categories, array $exclureIds): arr
     // Directeur / Adjoint pour les enseignants, Conseiller, Administratif.
     foreach ($lignes as &$p) {
         if ($p['categorie'] === 'enseignant') {
-            $p['groupe_role'] = stripos((string) $p['fonction'], 'directeur') === 0 ? 'Directeur' : 'Adjoint';
+            // "direct" (et non "directeur") pour reconnaître aussi "Directrice".
+            $p['groupe_role'] = stripos((string) $p['fonction'], 'direct') === 0 ? 'Directeur' : 'Adjoint';
         } elseif ($p['categorie'] === 'conseiller') {
             $p['groupe_role'] = 'Conseiller';
         } else {
@@ -276,7 +277,8 @@ $vivierSecretariat    = vivierParCategorie($pdo, ['enseignant', 'administratif',
 $vivierSuperviseursBase = vivierParCategorie($pdo, ['enseignant', 'administratif', 'conseiller'], $dejaVerrouilles);
 $vivierSurveillants   = $engine->viveirEnseignantsDisponibles($typeExamenLibelle);
 foreach ($vivierSurveillants as &$p) {
-    $p['groupe_role'] = stripos((string) $p['fonction'], 'directeur') === 0 ? 'Directeur' : 'Adjoint';
+    // "direct" (et non "directeur") pour reconnaître aussi "Directrice".
+    $p['groupe_role'] = stripos((string) $p['fonction'], 'direct') === 0 ? 'Directeur' : 'Adjoint';
 }
 unset($p);
 
