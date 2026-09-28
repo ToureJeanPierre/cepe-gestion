@@ -88,9 +88,13 @@ if ($examenId) {
             $notesParCandidatStats[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present'], 'dispense' => (int) $n['dispense']];
         }
 
-        $parSecteurStats = ['Public' => ['total_notes' => 0, 'admis' => 0], 'Privé' => ['total_notes' => 0, 'admis' => 0]];
+        $parSecteurStats = ['Public' => ['total_notes' => 0, 'admis' => 0], 'Privé' => ['total_notes' => 0, 'admis' => 0], 'Candidats libres' => ['total_notes' => 0, 'admis' => 0]];
         foreach ($candidatsStats as $c) {
-            $secteur = $c['statut'] ?? null;
+            // Un candidat libre n'a pas d'ecole_id donc pas de statut Public/Privé
+            // (LEFT JOIN ecoles renvoie NULL) — il ne doit pas disparaître des
+            // statistiques pour autant, sinon le total affiché ici diverge de
+            // celui de resultats.php qui, lui, compte bien les candidats libres.
+            $secteur = ((int) $c['est_candidat_libre'] === 1) ? 'Candidats libres' : ($c['statut'] ?? null);
             if (!isset($parSecteurStats[$secteur])) continue;
 
             $notesC = $notesParCandidatStats[(int) $c['id']] ?? [];
@@ -231,6 +235,16 @@ include '../views/layouts/header.php';
                                     <td><?= $r['total_notes'] > 0 ? round($r['admis'] / $r['total_notes'] * 100, 1) : 0 ?>%</td>
                                 </tr>
                             <?php endforeach; ?>
+                            <?php
+                                $totalNotesGlobal = array_sum(array_column($reussiteParSecteur, 'total_notes'));
+                                $totalAdmisGlobal = array_sum(array_column($reussiteParSecteur, 'admis'));
+                            ?>
+                            <tr class="fw-bold table-light">
+                                <td>TOTAL</td>
+                                <td><?= $totalNotesGlobal ?></td>
+                                <td><?= $totalAdmisGlobal ?></td>
+                                <td><?= $totalNotesGlobal > 0 ? round($totalAdmisGlobal / $totalNotesGlobal * 100, 1) : 0 ?>%</td>
+                            </tr>
                         </tbody>
                     </table>
                 <?php endif; ?>

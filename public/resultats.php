@@ -80,10 +80,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enregistrer_notes']))
         ON DUPLICATE KEY UPDATE note = VALUES(note), present = VALUES(present), dispense = VALUES(dispense), source = 'saisie'
     ");
 
+    // Un candidat coché "Absent" a ses champs de note désactivés côté JS :
+    // un input disabled n'est jamais soumis, donc son candidat_id peut être
+    // absent de $_POST['notes'] tout en étant présent dans $_POST['absent'].
+    // On doit donc traiter l'UNION des deux, sinon l'absence n'est jamais
+    // enregistrée (les anciennes notes/présent restent inchangées en base).
+    $tousCandidatsIds = array_unique(array_merge(
+        array_map('intval', array_keys($notesPost)),
+        array_map('intval', array_keys($absentsPost))
+    ));
+
     $nb = 0;
-    foreach ($notesPost as $candidatId => $notesParIndex) {
-        $candidatId = (int) $candidatId;
+    foreach ($tousCandidatsIds as $candidatId) {
         if ($candidatId <= 0) continue;
+        $notesParIndex = $notesPost[$candidatId] ?? [];
 
         $estAbsent = isset($absentsPost[$candidatId]);
         $estDispenseEPS = isset($dispensesPost[$candidatId]);
@@ -135,19 +145,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_notes'])) {
                     $nom = trim($row[1] ?? '');
                     $prenoms = trim($row[2] ?? '');
                     $colonneMatieres = 3;
-                    $presentRaw = strtoupper(trim($row[$colonneMatieres + count($listeMatieres)] ?? 'O'));
+                    $colonnePresent = $colonneMatieres + count($listeMatieres);
+                    if (!array_key_exists($colonnePresent, $row)) {
+                        $erreurs[] = "Ligne $numLigne : fichier trop court (colonne Présent manquante) — ligne ignorée, vérifiez le modèle de colonnes.";
+                        continue;
+                    }
+                    $presentRaw = strtoupper(trim((string) ($row[$colonnePresent] ?? 'O')));
                     $present = !in_array($presentRaw, ['N', 'NON', '0'], true) ? 1 : 0;
 
                     $candidat = null;
                     if (!empty($matricule)) {
                         $stmtC = $pdo->prepare("SELECT id FROM candidats WHERE annee_id = ? AND matricule_dsps = ?");
                         $stmtC->execute([$anneeId, $matricule]);
-                        $candidat = $stmtC->fetch();
+                        $candidatsTrouves = $stmtC->fetchAll();
+                        if (count($candidatsTrouves) > 1) {
+                            $erreurs[] = "Ligne $numLigne : plusieurs candidats partagent le matricule $matricule — ligne ignorée, à corriger manuellement.";
+                            continue;
+                        }
+                        $candidat = $candidatsTrouves[0] ?? null;
                     }
                     if (!$candidat && !empty($nom)) {
                         $stmtC = $pdo->prepare("SELECT id FROM candidats WHERE annee_id = ? AND LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND LOWER(TRIM(prenoms)) = LOWER(TRIM(?))");
                         $stmtC->execute([$anneeId, $nom, $prenoms]);
-                        $candidat = $stmtC->fetch();
+                        $candidatsTrouves = $stmtC->fetchAll();
+                        if (count($candidatsTrouves) > 1) {
+                            $erreurs[] = "Ligne $numLigne : plusieurs candidats homonymes pour $nom $prenoms (sans matricule pour les distinguer) — ligne ignorée, à corriger manuellement.";
+                            continue;
+                        }
+                        $candidat = $candidatsTrouves[0] ?? null;
                     }
 
                     if (!$candidat) {
@@ -155,12 +180,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_notes'])) {
                         continue;
                     }
 
+                    $ligneAErreurNote = false;
                     foreach ($listeMatieres as $i => $matiere) {
                         $noteRaw = trim((string) ($row[$colonneMatieres + $i] ?? ''));
+                        if ($present && $noteRaw !== '' && !is_numeric(str_replace(',', '.', $noteRaw))) {
+                            $erreurs[] = "Ligne $numLigne : note '$noteRaw' non numérique pour $matiere ($nom $prenoms) — matière ignorée pour cette ligne.";
+                            $ligneAErreurNote = true;
+                            continue;
+                        }
                         $note = ($present && $noteRaw !== '') ? max(0, min($matieres[$matiere], round((float) str_replace(',', '.', $noteRaw), 2))) : null;
                         $stmtUpsert->execute([$candidat['id'], $examenId, $matiere, $note, $present]);
                     }
-                    $nbMajs++;
+                    if (!$ligneAErreurNote) {
+                        $nbMajs++;
+                    }
                 } catch (Exception $e) {
                     $erreurs[] = "Ligne $numLigne : " . $e->getMessage();
                 }
@@ -168,7 +201,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_notes'])) {
 
             $msg = "Import terminé : $nbMajs candidat(s) mis à jour.";
             if ($erreurs) {
-                $msg .= " <br><small>" . count($erreurs) . " erreur(s) (voir détail ci-dessous).</small>";
+                $msg .= " " . count($erreurs) . " erreur(s) (voir détail ci-dessous).";
                 $_SESSION['import_erreurs_notes'] = $erreurs;
             } else {
                 unset($_SESSION['import_erreurs_notes']);

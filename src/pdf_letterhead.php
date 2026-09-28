@@ -150,7 +150,7 @@ if (!function_exists('enteteDeco')) {
                     <td class="entete-droite">
                         <div class="republique">REPUBLIQUE DE C&Ocirc;TE D\'IVOIRE</div>
                         <div>Union &ndash; Discipline - Travail</div>
-                        <div class="drapeau-barre"></div>
+                        <div class="drapeau-barres"><span class="barre-orange"></span><span class="barre-verte"></span></div>
                     </td>
                 </tr>
             </table>

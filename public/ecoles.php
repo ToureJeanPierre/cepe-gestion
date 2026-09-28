@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_ecoles'])) {
             recalculerGroupesScolaires($pdo);
 
             $msg = "Import terminé : $nbAjouts ajouts, $nbMajs mises à jour.";
-            if (!empty($erreurs)) $msg .= "<br>Erreurs : " . implode(", ", array_slice($erreurs, 0, 5));
+            if (!empty($erreurs)) $msg .= " Erreurs : " . implode(", ", array_slice($erreurs, 0, 5));
             header("Location: ecoles.php?msg=" . urlencode($msg));
             exit;
 
@@ -100,10 +100,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_ecoles'])) {
 // ==========================================
 if (isset($_GET['supprimer'])) {
     $id = (int)$_GET['supprimer'];
-    $pdo->prepare("UPDATE ecoles SET ecole_tutrice_id = NULL WHERE ecole_tutrice_id = ?")->execute([$id]);
-    $pdo->prepare("DELETE FROM ecoles WHERE id = ?")->execute([$id]);
-    recalculerGroupesScolaires($pdo);
-    header("Location: ecoles.php");
+
+    // candidats.ecole_id et centres.ecole_id n'ont pas de contrainte de clé
+    // étrangère vers ecoles (seul ecole_tutrice_id en a une) : sans ce
+    // contrôle, supprimer une école qui a déjà des candidats réels ou sert
+    // de centre d'examen les rend orphelins en silence (ecole_id pointant
+    // vers une ligne qui n'existe plus plutôt qu'une erreur bloquante).
+    $stmtCandidatsLies = $pdo->prepare("SELECT COUNT(*) FROM candidats WHERE ecole_id = ?");
+    $stmtCandidatsLies->execute([$id]);
+    $nbCandidatsLies = (int) $stmtCandidatsLies->fetchColumn();
+
+    $stmtCentresLies = $pdo->prepare("SELECT COUNT(*) FROM centres WHERE ecole_id = ?");
+    $stmtCentresLies->execute([$id]);
+    $nbCentresLies = (int) $stmtCentresLies->fetchColumn();
+
+    if ($nbCandidatsLies > 0 || $nbCentresLies > 0) {
+        header("Location: ecoles.php?msg=" . urlencode(
+            "Suppression refusée : cette école a encore $nbCandidatsLies candidat(s) et $nbCentresLies centre(s) d'examen rattaché(s). Déplacez ou supprimez-les d'abord."
+        ));
+        exit;
+    }
+
+    try {
+        $pdo->beginTransaction();
+        $pdo->prepare("UPDATE ecoles SET ecole_tutrice_id = NULL WHERE ecole_tutrice_id = ?")->execute([$id]);
+        $pdo->prepare("DELETE FROM ecoles WHERE id = ?")->execute([$id]);
+        $pdo->commit();
+        recalculerGroupesScolaires($pdo);
+        header("Location: ecoles.php");
+    } catch (\PDOException $e) {
+        $pdo->rollBack();
+        error_log('ecoles.php suppression: ' . $e->getMessage());
+        header("Location: ecoles.php?msg=" . urlencode("Erreur technique lors de la suppression."));
+    }
     exit;
 }
 

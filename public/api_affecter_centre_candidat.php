@@ -44,11 +44,14 @@ if (estAnneeArchivee((int) $candidat['annee_id'], $anneesDisponibles)) {
 }
 
 if ($centreId !== null) {
-    $stmtCentre = $pdo->prepare("SELECT COUNT(*) FROM centres WHERE id = ?");
-    $stmtCentre->execute([$centreId]);
+    // Le centre doit exister ET appartenir à la même année que le candidat —
+    // un id de centre valide mais d'une autre année scolaire n'a pas de sens
+    // ici (les centres sont une notion annuelle).
+    $stmtCentre = $pdo->prepare("SELECT COUNT(*) FROM centres WHERE id = ? AND annee_id = ?");
+    $stmtCentre->execute([$centreId, (int) $candidat['annee_id']]);
     if ((int) $stmtCentre->fetchColumn() === 0) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'error' => 'Centre introuvable.']);
+        echo json_encode(['success' => false, 'error' => 'Centre introuvable pour cette année scolaire.']);
         exit;
     }
 }
@@ -57,6 +60,7 @@ try {
     $pdo->prepare("UPDATE candidats SET centre_examen_id = ? WHERE id = ?")->execute([$centreId, $id]);
     echo json_encode(['success' => true, 'centre_examen_id' => $centreId]);
 } catch (Exception $e) {
+    error_log('api_affecter_centre_candidat: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Erreur technique lors du traitement.']);
 }

@@ -276,16 +276,28 @@ class AffectationEngine
     /**
      * Enregistre une affectation (rôle manuel ou automatique). Retourne
      * true si l'insertion a réussi, false si l'acteur ne peut pas être
-     * affecté (déjà un rôle sur cet examen).
+     * affecté (déjà un rôle sur cet examen, catégorie non autorisée pour ce
+     * rôle, poste à titulaire unique déjà pourvu sur ce centre, etc.).
      *
      * Non-redondance : tous les rôles à présence physique unique (Président,
      * Chef Secrétariat, Membre Secrétariat, Surveillant) limitent la
      * personne à UN SEUL centre par examen. Le rôle Superviseur fait
      * exception : un superviseur couvre en pratique plusieurs centres de sa
      * zone sur un même examen (confirmé par le document réel "Mission de
-     * Supervision"), donc plusieurs lignes lui sont autorisées — la
-     * contrainte unique en base (annee_id, type_examen, enseignant_id,
-     * centre_id) empêche seulement un doublon exact sur le même centre.
+     * Supervision"), donc plusieurs lignes lui sont autorisées SUR CE RÔLE
+     * — mais une personne déjà titulaire d'un AUTRE rôle sur cet examen ne
+     * peut pas non plus devenir Superviseur ailleurs (et inversement), sous
+     * peine de recréer la même collusion que la règle est censée empêcher.
+     *
+     * Tout est revérifié ici, côté serveur, même si l'appelant a déjà filtré
+     * les mêmes règles côté UI (viviers, listes déroulantes) : ces filtres
+     * sont une commodité d'affichage, pas une garantie — un formulaire posté
+     * à la main ou une page restée ouverte ne doit jamais pouvoir contourner
+     * les règles métier réelles.
+     *
+     * Le check-then-insert est protégé par une transaction avec verrou
+     * (SELECT ... FOR UPDATE) pour fermer la fenêtre de course entre deux
+     * soumissions quasi simultanées visant la même personne.
      */
     public function enregistrerAffectation(
         string $typeExamenLibelle,
@@ -293,30 +305,86 @@ class AffectationEngine
         int $centreId,
         string $role,
         bool $estManuel,
-        ?int $planSalleId = null
+        ?int $planSalleId = null,
+        bool $conflitForce = false
     ): bool {
-        $stmtCentre = $this->pdo->prepare("SELECT COUNT(*) FROM centres WHERE id = ? AND annee_id = ?");
-        $stmtCentre->execute([$centreId, $this->anneeId]);
-        if ((int) $stmtCentre->fetchColumn() === 0) {
-            return false;
-        }
+        $rolesSingletonParCentre = ['Président', 'Chef Secrétariat'];
 
-        if ($role !== 'Superviseur') {
-            $stmt = $this->pdo->prepare("
-                SELECT COUNT(*) FROM affectations
-                WHERE annee_id = ? AND type_examen = ? AND enseignant_id = ?
-            ");
-            $stmt->execute([$this->anneeId, $typeExamenLibelle, $enseignantId]);
-            if ((int) $stmt->fetchColumn() > 0) {
-                return false;
-            }
+        $transactionDemarreeIci = !$this->pdo->inTransaction();
+        if ($transactionDemarreeIci) {
+            $this->pdo->beginTransaction();
         }
 
         try {
+            $stmtCentre = $this->pdo->prepare("SELECT COUNT(*) FROM centres WHERE id = ? AND annee_id = ?");
+            $stmtCentre->execute([$centreId, $this->anneeId]);
+            if ((int) $stmtCentre->fetchColumn() === 0) {
+                if ($transactionDemarreeIci) $this->pdo->rollBack();
+                return false;
+            }
+
+            // Re-vérification de la personne elle-même : jamais confiance
+            // aveugle dans un personnel_id posté, même si le vivier affiché
+            // à l'écran l'a déjà filtré.
+            $stmtPersonnel = $this->pdo->prepare("SELECT categorie, fonction, disponibilite FROM personnel WHERE id = ?");
+            $stmtPersonnel->execute([$enseignantId]);
+            $personnel = $stmtPersonnel->fetch();
+            if (!$personnel || $personnel['disponibilite'] !== 'En activité') {
+                if ($transactionDemarreeIci) $this->pdo->rollBack();
+                return false;
+            }
+            if ($role === 'Surveillant') {
+                $fonction = (string) ($personnel['fonction'] ?? '');
+                $estDirecteurOuAdjoint = stripos($fonction, 'direct') === 0 || $fonction === 'Adjoint';
+                if ($personnel['categorie'] !== 'enseignant' || !$estDirecteurOuAdjoint) {
+                    if ($transactionDemarreeIci) $this->pdo->rollBack();
+                    return false;
+                }
+            }
+
+            // Verrouille les lignes existantes de cette personne pour cet
+            // examen le temps de la vérification + insertion, afin qu'une
+            // deuxième soumission concurrente pour la même personne attende
+            // au lieu de lire un état déjà obsolète.
+            $stmtLock = $this->pdo->prepare("
+                SELECT role FROM affectations
+                WHERE annee_id = ? AND type_examen = ? AND enseignant_id = ?
+                FOR UPDATE
+            ");
+            $stmtLock->execute([$this->anneeId, $typeExamenLibelle, $enseignantId]);
+            $rolesExistants = $stmtLock->fetchAll(\PDO::FETCH_COLUMN);
+
+            if ($role === 'Superviseur') {
+                // Plusieurs centres en Superviseur sont autorisés, mais pas
+                // si la personne tient déjà un AUTRE rôle sur cet examen.
+                foreach ($rolesExistants as $r) {
+                    if ($r !== 'Superviseur') {
+                        if ($transactionDemarreeIci) $this->pdo->rollBack();
+                        return false;
+                    }
+                }
+            } elseif (count($rolesExistants) > 0) {
+                if ($transactionDemarreeIci) $this->pdo->rollBack();
+                return false;
+            }
+
+            if (in_array($role, $rolesSingletonParCentre, true)) {
+                $stmtSingleton = $this->pdo->prepare("
+                    SELECT COUNT(*) FROM affectations
+                    WHERE annee_id = ? AND type_examen = ? AND centre_id = ? AND role = ?
+                    FOR UPDATE
+                ");
+                $stmtSingleton->execute([$this->anneeId, $typeExamenLibelle, $centreId, $role]);
+                if ((int) $stmtSingleton->fetchColumn() > 0) {
+                    if ($transactionDemarreeIci) $this->pdo->rollBack();
+                    return false;
+                }
+            }
+
             $stmt = $this->pdo->prepare("
                 INSERT INTO affectations
-                    (annee_id, type_examen, enseignant_id, centre_id, role, plan_salle_id, est_manuel)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (annee_id, type_examen, enseignant_id, centre_id, role, plan_salle_id, est_manuel, conflit_force)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
@@ -327,12 +395,22 @@ class AffectationEngine
                 $role,
                 $planSalleId,
                 $estManuel ? 1 : 0,
+                $conflitForce ? 1 : 0,
             ]);
 
+            if ($transactionDemarreeIci) $this->pdo->commit();
             return true;
         } catch (\PDOException $e) {
-            // Code 23000 = violation de contrainte unique (déjà affecté sur ce centre).
-            return false;
+            if ($transactionDemarreeIci && $this->pdo->inTransaction()) $this->pdo->rollBack();
+            // 1062 = doublon exact (même centre_id) sur la contrainte unique :
+            // cas normal de double-clic, traité comme "déjà affecté". Toute
+            // autre erreur d'intégrité (FK invalide, colonne NOT NULL, etc.)
+            // est une vraie anomalie technique : elle ne doit pas être confondue
+            // avec la même personne et remonter un faux diagnostic "déjà affecté".
+            if ((int) ($e->errorInfo[1] ?? 0) === 1062) {
+                return false;
+            }
+            throw $e;
         }
     }
 

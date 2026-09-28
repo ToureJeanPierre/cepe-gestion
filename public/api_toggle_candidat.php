@@ -50,6 +50,7 @@ try {
         'est_valide' => ((int) $row['matricule_verifie'] === 1 && (int) $row['droits_payes'] === 1),
     ]);
 } catch (Exception $e) {
+    error_log('api_toggle_candidat: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => 'Erreur technique lors du traitement.']);
 }

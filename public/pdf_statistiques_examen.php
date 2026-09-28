@@ -42,10 +42,15 @@ foreach ($stmtNotes->fetchAll() as $n) {
     $notesParCandidat[(int) $n['candidat_id']][$n['matiere']] = ['note' => $n['note'], 'present' => (int) $n['present'], 'dispense' => (int) $n['dispense']];
 }
 
-$parSecteur = ['Public' => ['effectif' => 0, 'admis' => 0], 'Privé' => ['effectif' => 0, 'admis' => 0]];
+$parSecteur = ['Public' => ['effectif' => 0, 'admis' => 0], 'Privé' => ['effectif' => 0, 'admis' => 0], 'Candidats libres' => ['effectif' => 0, 'admis' => 0]];
 foreach ($candidats as $c) {
-    $secteur = $c['statut'] ?? null;
-    if (!isset($parSecteur[$secteur])) continue; // candidat libre sans école -> hors secteur
+    // Un candidat libre n'a pas d'ecole_id donc pas de statut Public/Privé
+    // (LEFT JOIN ecoles renvoie NULL) — sans ce cas à part, il disparaissait
+    // du TOTAL affiché ici alors qu'il est compté dans le taux de réussite
+    // de resultats.php, ce qui faisait diverger le document officiel de
+    // l'écran de saisie.
+    $secteur = ((int) $c['est_candidat_libre'] === 1) ? 'Candidats libres' : ($c['statut'] ?? null);
+    if (!isset($parSecteur[$secteur])) continue;
 
     $notesCandidat = $notesParCandidat[(int) $c['id']] ?? [];
     $estAbsent = false;
@@ -73,6 +78,8 @@ $effectifPublic = $parSecteur['Public']['effectif'];
 $admisPublic = $parSecteur['Public']['admis'];
 $effectifPrive = $parSecteur['Privé']['effectif'];
 $admisPrive = $parSecteur['Privé']['admis'];
+$effectifLibres = $parSecteur['Candidats libres']['effectif'];
+$admisLibres = $parSecteur['Candidats libres']['admis'];
 
 $pct = fn($admis, $effectif) => $effectif > 0 ? round($admis / $effectif * 100, 2) : 0;
 
@@ -87,7 +94,12 @@ $html .= titreDocumentIepp('STATISTIQUE DE LA ' . strtoupper($examen['libelle'])
 $html .= '<table class="doc-table" style="margin-top:10px;"><thead><tr><th></th><th>Effectif</th><th>Admis</th><th>Pourcentage</th></tr></thead><tbody>';
 $html .= '<tr><td>PUBLIC</td><td>' . $effectifPublic . '</td><td>' . $admisPublic . '</td><td>' . $pct($admisPublic, $effectifPublic) . '</td></tr>';
 $html .= '<tr><td>PRIVE</td><td>' . $effectifPrive . '</td><td>' . $admisPrive . '</td><td>' . $pct($admisPrive, $effectifPrive) . '</td></tr>';
-$html .= '<tr style="font-weight:bold;"><td>TOTAL</td><td>' . ($effectifPublic + $effectifPrive) . '</td><td>' . ($admisPublic + $admisPrive) . '</td><td>' . $pct($admisPublic + $admisPrive, $effectifPublic + $effectifPrive) . '</td></tr>';
+if ($effectifLibres > 0) {
+    $html .= '<tr><td>CANDIDATS LIBRES</td><td>' . $effectifLibres . '</td><td>' . $admisLibres . '</td><td>' . $pct($admisLibres, $effectifLibres) . '</td></tr>';
+}
+$effectifTotal = $effectifPublic + $effectifPrive + $effectifLibres;
+$admisTotal = $admisPublic + $admisPrive + $admisLibres;
+$html .= '<tr style="font-weight:bold;"><td>TOTAL</td><td>' . $effectifTotal . '</td><td>' . $admisTotal . '</td><td>' . $pct($admisTotal, $effectifTotal) . '</td></tr>';
 $html .= '</tbody></table>';
 
 $html .= signatureIepp();

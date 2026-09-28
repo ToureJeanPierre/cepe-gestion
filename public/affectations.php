@@ -81,6 +81,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $action = $_POST['action'] ?? '';
 
+    try {
+
     if ($action === 'affecter_role') {
 
         $centreId = (int) ($_POST['centre_id'] ?? 0);
@@ -99,11 +101,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($conflit && !$forcer) {
                 $error = "⚠️ Conflit détecté : cette personne appartient à une école du même Groupe Scolaire que ce centre. Cochez \"Forcer malgré le conflit\" pour passer outre (déconseillé).";
             } else {
-                $ok = $engine->enregistrerAffectation($typeExamenLibelle, $personnelId, $centreId, $role, true);
+                $ok = $engine->enregistrerAffectation($typeExamenLibelle, $personnelId, $centreId, $role, true, null, $conflit && $forcer);
                 if ($ok) {
                     $success = "Rôle \"{$role}\" attribué avec succès" . ($conflit ? " (conflit forcé manuellement)." : ".");
                 } else {
-                    $error = "Cette personne a déjà un rôle attribué pour cet examen (règle de non-redondance). Retirez d'abord son affectation existante.";
+                    $error = "Affectation refusée : cette personne a déjà un rôle attribué pour cet examen (règle de non-redondance), ou ce poste (Président/Chef Secrétariat) est déjà pourvu sur ce centre. Rafraîchissez la page et réessayez.";
                 }
             }
         }
@@ -124,12 +126,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($conflit && !$forcer) {
                 $error = "⚠️ Conflit détecté : cet enseignant appartient à une école du même Groupe Scolaire que ce centre. Cochez \"Forcer malgré le conflit\" pour passer outre (déconseillé).";
             } else {
-                $ok = $engine->enregistrerAffectation($typeExamenLibelle, $personnelId, $centreId, $role, true);
+                $ok = $engine->enregistrerAffectation($typeExamenLibelle, $personnelId, $centreId, $role, true, null, $conflit && $forcer);
                 $success = $ok
                     ? "Surveillant affecté avec succès" . ($conflit ? " (conflit forcé manuellement)." : ".")
                     : null;
                 if (!$ok) {
-                    $error = "Cette personne a déjà un rôle attribué pour cet examen (règle de non-redondance).";
+                    $error = "Affectation refusée : cette personne a déjà un rôle attribué pour cet examen (règle de non-redondance), ou n'est plus éligible au rôle de Surveillant (catégorie ou disponibilité). Rafraîchissez la page et réessayez.";
                 }
             }
         }
@@ -164,6 +166,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $success = "Les affectations automatiques (surveillants) de cet examen ont été réinitialisées. Les rôles saisis manuellement sont conservés.";
         unset($_SESSION['affectations_warnings']);
     }
+
+    } catch (\PDOException $e) {
+        // Anomalie technique réelle (contrainte FK, colonne invalide, etc.) —
+        // à ne jamais confondre avec "déjà affecté", qui est un cas métier
+        // normal déjà géré par enregistrerAffectation() sans lever d'exception.
+        $error = "Erreur technique lors de l'enregistrement : " . $e->getMessage();
+    }
 }
 
 $warnings = $_SESSION['affectations_warnings'] ?? [];
@@ -180,7 +189,7 @@ $centres = $engine->centresPourExamen($examenId, $estFinal);
 
 // Toutes les affectations existantes pour cet examen, groupées par centre.
 $stmt = $pdo->prepare("
-    SELECT a.id, a.centre_id, a.role, a.est_manuel,
+    SELECT a.id, a.centre_id, a.role, a.est_manuel, a.conflit_force,
            p.id AS personnel_id, p.nom, p.prenoms, p.sexe, p.ecole_id, p.niveau_tenu, p.type_ecole, p.categorie
     FROM affectations a
     JOIN personnel p ON p.id = a.enseignant_id
@@ -265,6 +274,17 @@ function checkboxForcerConflit(string $idBase): void
         <label class="form-check-label small" for="<?= $idBase ?>">Forcer malgré un conflit</label>
     </div>
     <?php
+}
+
+// Trace visuelle d'une affectation créée en forçant volontairement un
+// conflit anti-collusion : distingue une dérogation assumée d'une anomalie
+// lors d'un contrôle a posteriori (cf. migration 018, colonne conflit_force).
+function badgeConflitForce(?array $ligne): string
+{
+    if (!$ligne || (int) ($ligne['conflit_force'] ?? 0) === 0) {
+        return '';
+    }
+    return ' <i class="bi bi-exclamation-triangle-fill text-warning" title="Affecté malgré un conflit anti-collusion détecté (forcé manuellement)"></i>';
 }
 
 // Verrouillage global : uniquement les rôles à présence physique unique. Le
@@ -371,7 +391,7 @@ include '../views/layouts/header.php';
                 </button>
             </form>
 
-            <span class="text-muted ms-auto">
+            <span class="text-muted ms-auto" id="compteur-disponibles">
                 <?= count($vivierSurveillants) ?> enseignant(s) encore disponible(s) pour un rôle sur cet examen
             </span>
 
@@ -384,7 +404,7 @@ include '../views/layouts/header.php';
 
     <?php foreach ($centres as $centreId => $c):
         $lignes = $affectationsParCentre[$centreId] ?? [];
-        $president = null; $chefSecretariat = null; $membresSecretariat = []; $superviseurs = []; $surveillants = []; $suppleants = [];
+        $president = null; $chefSecretariat = null; $membresSecretariat = []; $superviseurs = []; $surveillants = [];
         foreach ($lignes as $l) {
             switch ($l['role']) {
                 case 'Président': $president = $l; break;
@@ -392,11 +412,10 @@ include '../views/layouts/header.php';
                 case 'Membre Secrétariat': $membresSecretariat[] = $l; break;
                 case 'Superviseur': $superviseurs[] = $l; break;
                 case 'Surveillant': $surveillants[] = $l; break;
-                case 'Suppléant': $suppleants[] = $l; break;
             }
         }
         $quota = $c['quota_surveillants'];
-        $compteSurveillance = count($surveillants) + count($suppleants);
+        $compteSurveillance = count($surveillants);
 
         // Un superviseur déjà affecté à CE centre ne doit pas réapparaître dans le
         // select (mais reste sélectionnable pour les AUTRES centres, cf. plus haut).
@@ -428,7 +447,7 @@ include '../views/layouts/header.php';
                     <label class="form-label small text-muted">Président de centre</label>
                     <?php if ($president): ?>
                         <div class="d-flex justify-content-between align-items-center border rounded p-2">
-                            <span><?= htmlspecialchars($president['nom'] . ' ' . $president['prenoms']) ?></span>
+                            <span><?= htmlspecialchars($president['nom'] . ' ' . $president['prenoms']) ?><?= badgeConflitForce($president) ?></span>
                             <form method="post" onsubmit="return confirm('Retirer ce président ?');">
                                 <input type="hidden" name="action" value="supprimer">
                                 <input type="hidden" name="affectation_id" value="<?= $president['id'] ?>">
@@ -453,7 +472,7 @@ include '../views/layouts/header.php';
                     <label class="form-label small text-muted">Chef de Secrétariat</label>
                     <?php if ($chefSecretariat): ?>
                         <div class="d-flex justify-content-between align-items-center border rounded p-2">
-                            <span><?= htmlspecialchars($chefSecretariat['nom'] . ' ' . $chefSecretariat['prenoms']) ?></span>
+                            <span><?= htmlspecialchars($chefSecretariat['nom'] . ' ' . $chefSecretariat['prenoms']) ?><?= badgeConflitForce($chefSecretariat) ?></span>
                             <form method="post" onsubmit="return confirm('Retirer ce chef de secrétariat ?');">
                                 <input type="hidden" name="action" value="supprimer">
                                 <input type="hidden" name="affectation_id" value="<?= $chefSecretariat['id'] ?>">
@@ -478,7 +497,7 @@ include '../views/layouts/header.php';
                     <label class="form-label small text-muted">Membres du Secrétariat</label>
                     <?php foreach ($membresSecretariat as $m): ?>
                         <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-1">
-                            <span class="small"><?= htmlspecialchars($m['nom'] . ' ' . $m['prenoms']) ?></span>
+                            <span class="small"><?= htmlspecialchars($m['nom'] . ' ' . $m['prenoms']) ?><?= badgeConflitForce($m) ?></span>
                             <form method="post" onsubmit="return confirm('Retirer ce membre ?');">
                                 <input type="hidden" name="action" value="supprimer">
                                 <input type="hidden" name="affectation_id" value="<?= $m['id'] ?>">
@@ -502,7 +521,7 @@ include '../views/layouts/header.php';
                     <label class="form-label small text-muted">Superviseur(s)</label>
                     <?php foreach ($superviseurs as $s): ?>
                         <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-1">
-                            <span class="small"><?= htmlspecialchars($s['nom'] . ' ' . $s['prenoms']) ?></span>
+                            <span class="small"><?= htmlspecialchars($s['nom'] . ' ' . $s['prenoms']) ?><?= badgeConflitForce($s) ?></span>
                             <form method="post" onsubmit="return confirm('Retirer ce superviseur ?');">
                                 <input type="hidden" name="action" value="supprimer">
                                 <input type="hidden" name="affectation_id" value="<?= $s['id'] ?>">
@@ -543,9 +562,9 @@ include '../views/layouts/header.php';
                                 <tr><th>Nom</th><th>École</th><th>Niveau</th><th>Rôle</th><th>Origine</th><th></th></tr>
                             </thead>
                             <tbody>
-                                <?php foreach (array_merge($surveillants, $suppleants) as $s): ?>
+                                <?php foreach ($surveillants as $s): ?>
                                     <tr>
-                                        <td><?= htmlspecialchars($s['nom'] . ' ' . $s['prenoms']) ?></td>
+                                        <td><?= htmlspecialchars($s['nom'] . ' ' . $s['prenoms']) ?><?= badgeConflitForce($s) ?></td>
                                         <td class="small text-muted"><?= htmlspecialchars($nomsEcoles[(int) $s['ecole_id']] ?? '—') ?></td>
                                         <td><?= htmlspecialchars($s['niveau_tenu'] ?? '—') ?></td>
                                         <td><span class="badge <?= $s['role'] === 'Surveillant' ? 'bg-primary' : 'bg-secondary' ?>"><?= $s['role'] ?></span></td>
@@ -748,6 +767,16 @@ document.addEventListener('submit', async function (evenement) {
 
         if (messagesFrais && messagesActuels) {
             messagesActuels.outerHTML = messagesFrais.outerHTML;
+        }
+
+        // Le compteur "N enseignant(s) encore disponible(s)" est hors des
+        // cartes centre et du bloc messages : sans ce rafraîchissement
+        // explicite, il resterait affiché avec son ancienne valeur après
+        // chaque affectation/suppression traitée en AJAX.
+        var compteurFrais = docFrais.getElementById('compteur-disponibles');
+        var compteurActuel = document.getElementById('compteur-disponibles');
+        if (compteurFrais && compteurActuel) {
+            compteurActuel.outerHTML = compteurFrais.outerHTML;
         }
 
         actualiserExclusionsPersonnel();

@@ -129,9 +129,15 @@ function separerNomPrenoms(string $texte): array
         return [$texte, '', $sexe];
     }
 
-    $aUneMentionNee = isset($mots[1], $mots[2]) && in_array(mb_strtoupper($mots[1]), ['NEE', 'NÉE'], true);
+    // count($mots) > 3 (et pas seulement isset($mots[2])) : si la cellule
+    // s'arrête exactement à "NOM née NOMJEUNEFILLE" sans rien après, imposer
+    // quand même les 3 mots au nom laisserait des prénoms vides — un import
+    // silencieux avec prénom manquant est pire qu'un découpage imparfait
+    // mais visible (l'admin verra "née ..." dans la colonne prénoms et
+    // corrigera à la main).
+    $aUneMentionNee = isset($mots[1], $mots[2]) && count($mots) > 3 && in_array(mb_strtoupper($mots[1]), ['NEE', 'NÉE'], true);
     $indexFin = $aUneMentionNee ? 3 : 1;
-    if ($aUneMentionNee) {
+    if ($aUneMentionNee || (isset($mots[1]) && in_array(mb_strtoupper($mots[1]), ['NEE', 'NÉE'], true))) {
         $sexe = 'F'; // seule une femme porte une mention "née [nom de jeune fille]"
     }
 
@@ -165,14 +171,21 @@ function mapperLignesDocxPersonnel(array $lignesDocx): array
         return [];
     }
 
-    $texteEntete = mb_strtoupper(implode(' | ', $lignesDocx[0]));
+    // retirerAccents() est nécessaire ici : mb_strtoupper() seul laisse "É"
+    // tel quel ("PRÉNOMS" ne contiendrait alors jamais "PRENOM"), donc un
+    // modèle réel écrivant "Prénoms" avec l'accent (orthographe la plus
+    // naturelle) manquait la détection et voyait ses colonnes décalées en
+    // silence (matricule dans la case sexe, etc.).
+    $texteEntete = retirerAccents(mb_strtoupper(implode(' | ', $lignesDocx[0])));
     $nomEtPrenomsCombines = str_contains($texteEntete, 'NOM & PRENOM') || str_contains($texteEntete, 'NOM ET PRENOM');
 
     // Une vraie sous-ligne d'en-tête (ex. la répartition 1erEB/2eEB/6e du
-    // bloc Surveillance) a sa colonne N° vide ; une ligne de données a un
-    // numéro d'ordre. Évite de supposer un nombre fixe de lignes d'en-tête.
-    $premiereCelluleLigne2 = trim((string) ($lignesDocx[1][0] ?? ''));
-    $donnees = array_slice($lignesDocx, $premiereCelluleLigne2 === '' ? 2 : 1);
+    // bloc Surveillance) contient un mot-clé d'en-tête ; une ligne de données
+    // n'en contient pas, même si sa colonne N° est vide (numérotation Word
+    // automatique non lue par extraireTableauDocx) — se fier à la seule
+    // cellule N° vide supprimait alors la toute première personne du fichier.
+    $motsClesEntetePersonnel = ['NOM', 'PRENOM', 'SEXE', 'MATRICULE', 'CORPS', 'GRADE', 'FONCTION', 'COURS', 'CONTACT', 'AUTORISATION'];
+    $donnees = array_slice($lignesDocx, compterLignesEnteteDocx($lignesDocx, $motsClesEntetePersonnel));
 
     $rows = [];
     foreach ($donnees as $ligne) {
@@ -416,8 +429,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                         $existing = $checkStmt->fetch();
                     }
                     if (!$existing) {
-                        $checkStmt = $pdo->prepare("SELECT id FROM personnel WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND LOWER(TRIM(prenoms)) = LOWER(TRIM(?)) AND (ecole_id <=> ?)");
-                        $checkStmt->execute([$nom, $prenoms, $ecoleId]);
+                        // Filtre aussi sur categorie : les conseillers et administratifs
+                        // ont tous ecole_id=NULL comme les enseignants candidats libres
+                        // n'existent pas ici, donc "ecole_id <=> ?" seul peut faire
+                        // correspondre deux personnes réelles différentes qui partagent
+                        // un nom courant, sans lien entre elles — la 2ᵉ écraserait alors
+                        // en place la fiche de la 1ʳᵉ.
+                        $checkStmt = $pdo->prepare("SELECT id FROM personnel WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND LOWER(TRIM(prenoms)) = LOWER(TRIM(?)) AND categorie = ? AND (ecole_id <=> ?)");
+                        $checkStmt->execute([$nom, $prenoms, $categorieImport, $ecoleId]);
                         $existing = $checkStmt->fetch();
                     }
 
@@ -466,7 +485,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
 
             $msg = "Import terminé (" . CATEGORIES_PERSONNEL[$categorieImport] . ") : $nbAjouts ajouté(s), $nbMajs mis à jour.";
             if (!empty($erreurs)) {
-                $msg .= " <br><small>" . count($erreurs) . " remarque(s) (voir détail ci-dessous).</small>";
+                $msg .= " " . count($erreurs) . " remarque(s) (voir détail ci-dessous).";
                 $_SESSION['import_erreurs_personnel'] = $erreurs;
             } else {
                 unset($_SESSION['import_erreurs_personnel']);
@@ -592,7 +611,7 @@ include '../views/layouts/header.php';
 
 <!-- Alertes -->
 <?php if (isset($_GET['msg'])): ?>
-    <div class="alert alert-success alert-dismissible fade show"><?= $_GET['msg'] ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <div class="alert alert-success alert-dismissible fade show"><?= htmlspecialchars($_GET['msg']) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 <?php endif; ?>
 <?php if (!empty($_SESSION['import_erreurs_personnel'])): ?>
     <div class="alert alert-warning">

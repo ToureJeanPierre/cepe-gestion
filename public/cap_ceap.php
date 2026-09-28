@@ -113,7 +113,7 @@ include '../views/layouts/header.php';
     </div>
     <div class="col-md-3">
         <?php if ($filtreNature): ?>
-            <a href="pdf_bordereau_detail_cap_ceap.php?nature=<?= $filtreNature ?>" target="_blank" class="btn btn-outline-primary w-100"><i class="bi bi-file-earmark-pdf"></i> Bordereau détaillé (pièces)</a>
+            <a href="pdf_bordereau_detail_cap_ceap.php?nature=<?= urlencode($filtreNature) ?>" target="_blank" class="btn btn-outline-primary w-100"><i class="bi bi-file-earmark-pdf"></i> Bordereau détaillé (pièces)</a>
         <?php endif; ?>
     </div>
 </form>

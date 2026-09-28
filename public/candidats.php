@@ -43,8 +43,12 @@ function parserDateNaissanceImport($valeurBrute): ?string
  */
 function mapperLignesDocxCandidats(array $lignesDocx, string $nomEcole, ?string $codeDsps): array
 {
-    // La 1ʳᵉ ligne du tableau Word est l'en-tête : les données commencent à la ligne 1.
-    $donnees = array_slice($lignesDocx, 1);
+    // Certains modèles réels ont une 2ᵉ ligne d'en-tête (sous-titres de
+    // colonnes) ; on la détecte par mot-clé plutôt que de supposer un nombre
+    // fixe de lignes d'en-tête (cf. compterLignesEnteteDocx).
+    $motsClesEnteteCandidats = ['NOM', 'PRENOM', 'SEXE', 'NATIONALITE', 'NAISSANCE', 'MATRICULE', 'ACTE'];
+    $nbLignesEntete = compterLignesEnteteDocx($lignesDocx, $motsClesEnteteCandidats);
+    $donnees = array_slice($lignesDocx, $nbLignesEntete);
 
     $rows = [];
     foreach ($donnees as $ligne) {
@@ -198,21 +202,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                     }
 
                     // Vérification Doublon, dans l'année scolaire consultée : par Matricule DSPS si
-                    // disponible (clé la plus fiable), sinon par Nom + Prénoms + Date de naissance + École/Libre
+                    // disponible (clé la plus fiable), sinon par Nom + Prénoms + Date de naissance
+                    // SANS contraindre l'école : un ré-import qui corrige une école mal renseignée
+                    // au premier passage doit retrouver et corriger la même fiche, pas en créer une
+                    // seconde figée sur l'ancienne école (l'ancienne contrainte ecole_id=? empêchait
+                    // exactement ça). Si plusieurs candidats partagent nom+prénoms+date de naissance
+                    // dans des écoles différentes, la correspondance est ambiguë : on ne devine pas,
+                    // on signale pour vérification manuelle plutôt que de risquer de fusionner deux
+                    // élèves réels différents.
                     if (!empty($matricule)) {
                         $checkStmt = $pdo->prepare("SELECT id FROM candidats WHERE annee_id = ? AND matricule_dsps = ?");
                         $checkStmt->execute([$anneeId, $matricule]);
+                        $candidatsTrouves = $checkStmt->fetchAll();
                     } else {
-                        $checkSql = "SELECT id FROM candidats WHERE annee_id = ? AND nom = ? AND prenoms = ? AND date_naissance <=> ? AND ((ecole_id = ? AND est_candidat_libre = 0) OR (est_candidat_libre = 1 AND ? = 1))";
+                        $checkSql = "SELECT id FROM candidats WHERE annee_id = ? AND nom = ? AND prenoms = ? AND date_naissance <=> ?";
                         $checkStmt = $pdo->prepare($checkSql);
-                        $checkStmt->execute([$anneeId, $nom, $prenoms, $dateNaiss, $ecoleId, $estLibre]);
+                        $checkStmt->execute([$anneeId, $nom, $prenoms, $dateNaiss]);
+                        $candidatsTrouves = $checkStmt->fetchAll();
                     }
-                    $existing = $checkStmt->fetch();
+
+                    if (count($candidatsTrouves) > 1) {
+                        $erreurs[] = "Ligne $numLigne : plusieurs candidats correspondent déjà à $nom $prenoms" . (!empty($matricule) ? " (matricule $matricule)" : " (même date de naissance, écoles différentes)") . " — ligne ignorée, à corriger manuellement pour éviter de fusionner deux élèves différents.";
+                        continue;
+                    }
+                    $existing = $candidatsTrouves[0] ?? null;
 
                     if ($existing) {
-                        // Mise à jour de l'existant (On ne crée pas de doublon, on met à jour le statut/matricule)
-                        $upd = $pdo->prepare("UPDATE candidats SET matricule_dsps=?, a_acte_naissance=?, statut_demande=?, date_naissance=?, lieu_naissance=?, nationalite=? WHERE id=?");
-                        $upd->execute([$matricule, $aActe, $statutDemande, $dateNaiss, $lieuNaiss, $nationalite, $existing['id']]);
+                        // Mise à jour de l'existant (on ne crée pas de doublon) : y compris
+                        // nom/prénoms/sexe/école, qui peuvent avoir été corrigés depuis le
+                        // premier import (source DSPS faisant foi).
+                        $upd = $pdo->prepare("UPDATE candidats SET nom=?, prenoms=?, sexe=?, ecole_id=?, est_candidat_libre=?, matricule_dsps=?, a_acte_naissance=?, statut_demande=?, date_naissance=?, lieu_naissance=?, nationalite=? WHERE id=?");
+                        $upd->execute([$nom, $prenoms, $sexe, $ecoleId, $estLibre, $matricule, $aActe, $statutDemande, $dateNaiss, $lieuNaiss, $nationalite, $existing['id']]);
                         $nbMajs++;
                     } else {
                         // Insertion Nouveau
@@ -364,15 +384,20 @@ if ($filtreEcole === 'libres') {
 
 // Liste Écoles pour Select
 $ecoles = $pdo->query("SELECT id, nom FROM ecoles ORDER BY nom ASC")->fetchAll();
-// Liste Centres pour Candidats Libres
-$centres = $pdo->query("SELECT c.id, e.nom FROM centres c JOIN ecoles e ON c.ecole_id = e.id ORDER BY e.nom")->fetchAll();
+// Liste Centres pour Candidats Libres, restreinte à l'année consultée : les
+// centres sont une notion annuelle (un centre n'existe que pour une année
+// scolaire donnée), sans ce filtre un centre d'une année archivée apparaissait
+// ici mélangé à ceux de l'année en cours.
+$stmtCentresCandLibres = $pdo->prepare("SELECT c.id, e.nom FROM centres c JOIN ecoles e ON c.ecole_id = e.id WHERE c.annee_id = ? ORDER BY e.nom");
+$stmtCentresCandLibres->execute([$anneeId]);
+$centres = $stmtCentresCandLibres->fetchAll();
 
 include '../views/layouts/header.php';
 ?>
 
 <!-- Alertes -->
 <?php if (isset($_GET['msg'])): ?>
-    <div class="alert alert-success alert-dismissible fade show"><?= $_GET['msg'] ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    <div class="alert alert-success alert-dismissible fade show"><?= htmlspecialchars($_GET['msg']) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
 <?php endif; ?>
 
 <?php if (!empty($_SESSION['import_erreurs'])): ?>

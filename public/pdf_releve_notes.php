@@ -85,10 +85,15 @@ foreach ($candidats as &$c) {
     if (!$absent && !in_array(null, $notesPourTotal, true)) {
         $total = array_sum($notesPourTotal);
     }
+    // Un candidat dispensé d'EPS a un total réel sur un barème réduit (ex:
+    // /170 au lieu de /190) : l'afficher sous l'en-tête fixe "/190" induirait
+    // en erreur un lecteur qui compare les totaux entre candidats.
+    $totalMaxCandidat = $dispenseEPS ? array_sum(array_diff_key($matieres, ['EPS' => null])) : array_sum($matieres);
     $c['_notes'] = $notesParMatiere;
     $c['_dispense_eps'] = $dispenseEPS;
     $c['_absent'] = $absent;
     $c['_total'] = $total;
+    $c['_total_max'] = $totalMaxCandidat;
     $c['_moyenne'] = $moyenne;
     $c['_observation'] = $absent ? 'Absent' : ($moyenne === null ? '' : ($moyenne >= SEUIL_ADMISSION_CEPE ? 'Admis' : 'Refusé'));
 }
@@ -161,6 +166,19 @@ function enTeteColonnesNotes(array $matieres): string
     return $html;
 }
 
+function celluleTotal(array $c, int $totalMax): string
+{
+    if ($c['_total'] === null) {
+        return '—';
+    }
+    // Dispensé d'EPS : le total est sur un barème réduit, différent de l'en-tête
+    // de colonne fixe — on l'indique pour ne pas laisser croire à un score /190.
+    if ($c['_total_max'] !== $totalMax) {
+        return htmlspecialchars($c['_total']) . '/' . $c['_total_max'];
+    }
+    return htmlspecialchars($c['_total']);
+}
+
 function ligneNotes(array $c, array $listeMatieres): string
 {
     $html = '';
@@ -200,7 +218,7 @@ foreach ($groupes as $nomEcole => $lignes) {
                     . '<td class="gauche">' . htmlspecialchars($c['nom']) . '</td>'
                     . '<td class="gauche">' . htmlspecialchars($c['prenoms']) . '</td>'
                     . ligneNotes($c, $listeMatieres)
-                    . '<td>' . ($c['_total'] !== null ? htmlspecialchars($c['_total']) : '—') . '</td>'
+                    . '<td>' . celluleTotal($c, $totalMax) . '</td>'
                     . '<td><strong>' . ($c['_moyenne'] !== null ? htmlspecialchars($c['_moyenne']) : '—') . '</strong></td>'
                     . '<td>' . ($c['_rang'] !== null ? $c['_rang'] : 'n/c') . '</td>'
                     . '<td>' . celluleObservation($c['_observation']) . '</td>'
@@ -226,7 +244,7 @@ foreach ($groupes as $nomEcole => $lignes) {
                 . '<td class="gauche">' . htmlspecialchars($c['nom']) . '</td>'
                 . '<td class="gauche">' . htmlspecialchars($c['prenoms']) . '</td>'
                 . ligneNotes($c, $listeMatieres)
-                . '<td>' . ($c['_total'] !== null ? htmlspecialchars($c['_total']) : '—') . '</td>'
+                . '<td>' . celluleTotal($c, $totalMax) . '</td>'
                 . '<td><strong>' . ($c['_moyenne'] !== null ? htmlspecialchars($c['_moyenne']) : '—') . '</strong></td>'
                 . '<td>' . ($c['_rang'] !== null ? $c['_rang'] : 'n/c') . '</td>'
                 . '<td>' . celluleObservation($c['_observation']) . '</td>'
