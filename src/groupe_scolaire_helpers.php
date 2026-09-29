@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/docx_helpers.php'; // pour retirerAccents()
+
 // ==========================================
 // GROUPES SCOLAIRES : logique de regroupement automatique
 // ==========================================
@@ -14,12 +16,29 @@
 
 if (!function_exists('extraireBaseEcole')) {
     // Extrait la "base" du nom en retirant le suffixe numérique/alphabétique final
-    // (ex: "EPP Azito 1" -> "EPP Azito", "EPP Azito A" -> "EPP Azito")
+    // (ex: "EPP Azito 1" -> "EPP Azito", "EPP Azito A" -> "EPP Azito"), y compris
+    // un suffixe combiné chiffre + lettre ("EPP Azito 1 A" -> "EPP Azito", cas
+    // réel des écoles ayant plusieurs groupes pédagogiques par numéro).
     function extraireBaseEcole($nom) {
         $base = trim($nom);
-        $base = preg_replace('/\s+\d+$/', '', $base);       // enlève " 1", " 2"...
-        $base = preg_replace('/\s+[A-Za-z]$/', '', $base);  // enlève " A", " B"...
+        for ($i = 0; $i < 2; $i++) {
+            $base = preg_replace('/\s+\d+$/', '', $base);       // enlève " 1", " 2"...
+            $base = preg_replace('/\s+[A-Za-z]$/', '', $base);  // enlève " A", " B"...
+        }
         return trim($base);
+    }
+}
+
+if (!function_exists('normaliserBaseEcolePourGroupage')) {
+    // Clé de regroupement insensible à la casse ET aux accents : deux écoles
+    // saisies différemment selon le document source ("EPP Azito", "Epp AZITO",
+    // "École Primaire Publique Azito" une fois préfixe retiré) doivent former
+    // le même Groupe Scolaire plutôt que deux groupes distincts par accident
+    // de saisie. Ne sert qu'à la comparaison — le nom affiché du groupe garde
+    // la casse naturelle de la première école rencontrée dans le paquet.
+    function normaliserBaseEcolePourGroupage(string $base): string
+    {
+        return retirerAccents(mb_strtoupper(trim(preg_replace('/\s+/', ' ', $base))));
     }
 }
 
@@ -51,17 +70,24 @@ if (!function_exists('recalculerGroupesScolaires')) {
     function recalculerGroupesScolaires($pdo) {
         $ecoles = $pdo->query("SELECT id, nom, groupe_scolaire_manuel FROM ecoles")->fetchAll();
 
-        // Regroupe les écoles NON verrouillées par leur base de nom
+        // Regroupe les écoles NON verrouillées par leur base de nom, comparée de
+        // façon insensible à la casse/aux accents (clé), mais affichée avec la
+        // casse naturelle de la première école du paquet (valeur 'base_affichee').
         $paquets = [];
         foreach ($ecoles as $e) {
             if (!empty($e['groupe_scolaire_manuel'])) continue; // on ne touche pas aux ajustements manuels
             $base = extraireBaseEcole($e['nom']);
-            $paquets[$base][] = $e['id'];
+            $cle = normaliserBaseEcolePourGroupage($base);
+            if (!isset($paquets[$cle])) {
+                $paquets[$cle] = ['base_affichee' => $base, 'ids' => []];
+            }
+            $paquets[$cle]['ids'][] = $e['id'];
         }
 
-        foreach ($paquets as $base => $ids) {
+        foreach ($paquets as $paquet) {
+            $ids = $paquet['ids'];
             if (count($ids) >= 2) {
-                $nomGroupe = 'Groupe Scolaire ' . extraireNomLieu($base);
+                $nomGroupe = 'Groupe Scolaire ' . extraireNomLieu($paquet['base_affichee']);
                 $placeholders = implode(',', array_fill(0, count($ids), '?'));
                 $pdo->prepare("UPDATE ecoles SET groupe_scolaire = ? WHERE id IN ($placeholders)")
                     ->execute(array_merge([$nomGroupe], $ids));

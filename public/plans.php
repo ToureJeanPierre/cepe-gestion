@@ -11,6 +11,7 @@ $pageTitle = 'Plans de salle';
 $success = null;
 $error = null;
 $avertissements = [];
+$centresEmargementBloques = [];
 
 // Année scolaire consultée : résolue globalement par config/database.php
 // ($anneeId, $ANNEE_SCOLAIRE, $anneeSelectionnee, $anneeLectureSeule)
@@ -957,7 +958,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->beginTransaction();
 
                     $nbCentresTraites = 0;
-                    $avertissementsEmargement = [];
+                    $centresEmargementBloques = [];
 
                     foreach ($centresEffectifs as $centreEff) {
 
@@ -1014,28 +1015,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $candidatIds = array_column($candidats, 'id');
                         $capaciteTotale = array_sum(array_column($salles, 'capacite'));
 
+                        // Un écart ici signifie que les salles n'ont plus la bonne taille pour
+                        // l'effectif réel actuel — souvent parce qu'une école a été ajoutée ou
+                        // retirée de ce centre (onglet Centres) APRÈS que son plan de salle a été
+                        // généré, sans jamais le régénérer depuis. Produire quand même une liste
+                        // tronquée (comme avant) risquerait de faire imprimer et distribuer une
+                        // feuille d'émargement incomplète sans que ce soit évident : on préfère
+                        // ne RIEN générer/écraser pour ce centre tant que ce n'est pas corrigé, et
+                        // le dire de façon impossible à manquer plutôt que dans une liste
+                        // d'avertissements parmi d'autres.
                         if (count($candidatIds) !== $capaciteTotale) {
-                            $avertissementsEmargement[] =
-                                $centreEff['nom_centre']
-                                . " : effectif candidats (" . count($candidatIds) . ") différent "
-                                . "de la capacité des salles (" . $capaciteTotale . "). "
-                                . "Régénérez le plan de salle si l'effectif a changé.";
-
-                            // Au-delà de la capacité des salles, les candidats excédentaires ne
-                            // seront pas insérés dans plan_salle_candidats (boucle bornée par
-                            // salle['capacite'] ci-dessous) : on les nomme explicitement pour que
-                            // le personnel sache exactement qui manquera sur la feuille d'émargement.
-                            if (count($candidatIds) > $capaciteTotale) {
-                                $candidatsNonPlaces = array_slice($candidats, $capaciteTotale);
-                                $nomsNonPlaces = array_map(
-                                    fn ($c) => $c['nom'] . ' ' . $c['prenoms'],
-                                    $candidatsNonPlaces
-                                );
-                                $avertissementsEmargement[] =
-                                    $centreEff['nom_centre'] . " : " . count($candidatsNonPlaces)
-                                    . " candidat(s) NE FIGURERONT PAS sur la feuille d'émargement faute de place : "
-                                    . implode(', ', $nomsNonPlaces) . ".";
-                            }
+                            $centresEmargementBloques[] = [
+                                'nom' => $centreEff['nom_centre'],
+                                'nb_candidats' => count($candidatIds),
+                                'capacite' => $capaciteTotale,
+                            ];
+                            continue;
                         }
 
                         // Repart de zéro pour ce centre (une régénération recalcule toute l'affectation)
@@ -1064,8 +1059,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->commit();
 
                     $success = "Liste d'émargement générée pour $nbCentresTraites centre(s) — " . $examen['libelle'] . ".";
-                    if ($avertissementsEmargement) {
-                        $avertissements = array_merge($avertissements, $avertissementsEmargement);
+                    if ($centresEmargementBloques) {
+                        $success .= " " . count($centresEmargementBloques) . " centre(s) NON traité(s), voir ci-dessous.";
                     }
 
                 } catch (Exception $e) {
@@ -1492,6 +1487,44 @@ include '../views/layouts/header.php';
                 class="btn-close"
                 data-bs-dismiss="alert"
             ></button>
+
+        </div>
+
+    <?php endif; ?>
+
+
+    <!-- =========================================================
+         ÉMARGEMENT NON GÉNÉRÉ POUR CERTAINS CENTRES (effectif/capacité en
+         décalage — ex: une école ajoutée/retirée du centre après coup)
+    ========================================================== -->
+
+    <?php if (!empty($centresEmargementBloques)): ?>
+
+        <div class="alert alert-danger">
+
+            <h5 class="mb-2">
+                <i class="bi bi-exclamation-octagon"></i>
+                Émargement NON généré pour <?= count($centresEmargementBloques) ?> centre(s)
+            </h5>
+
+            <p class="mb-2">
+                L'effectif réel de ces centres ne correspond plus à la capacité de leurs
+                salles (souvent parce qu'une école a été ajoutée ou retirée du centre après
+                la génération du plan). Pour ne pas produire une liste d'émargement
+                incomplète, elle n'a pas été (re)générée pour ces centres — régénérez
+                d'abord leur plan de salle ci-dessous, puis relancez la génération de
+                l'émargement.
+            </p>
+
+            <ul class="mb-0">
+                <?php foreach ($centresEmargementBloques as $ceb): ?>
+                    <li>
+                        <strong><?= htmlspecialchars($ceb['nom']) ?></strong> :
+                        <?= $ceb['nb_candidats'] ?> candidat(s) réel(s) pour
+                        <?= $ceb['capacite'] ?> place(s) prévue(s) dans les salles.
+                    </li>
+                <?php endforeach; ?>
+            </ul>
 
         </div>
 
