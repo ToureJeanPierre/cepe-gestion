@@ -121,6 +121,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['supprimer'])) {
         exit;
     }
 
+    // Une école tutrice supprimée détache ses rattachées (ecole_tutrice_id
+    // mis à NULL, cf. plus bas) : une rattachée sans code DSPS propre n'a
+    // alors plus AUCUN moyen d'être comptée dans un centre (la règle "pas de
+    // code -> doit avoir une tutrice" n'est vérifiée qu'à la saisie, jamais
+    // rétroactivement) — ses candidats sortiraient silencieusement de tout
+    // effectif. Bloqué ici plutôt que de laisser ce cas se produire.
+    $stmtRattachees = $pdo->prepare("
+        SELECT er.id, er.nom, (er.code_dsps IS NULL OR er.code_dsps = '') AS sans_code_dsps,
+               (SELECT COUNT(*) FROM candidats WHERE ecole_id = er.id) AS nb_candidats
+        FROM ecoles er
+        WHERE er.ecole_tutrice_id = ?
+    ");
+    $stmtRattachees->execute([$id]);
+    $rattacheesProblematiques = array_filter(
+        $stmtRattachees->fetchAll(),
+        fn ($r) => (int) $r['nb_candidats'] > 0 || (int) $r['sans_code_dsps'] === 1
+    );
+
+    if ($rattacheesProblematiques) {
+        $noms = implode(', ', array_map(fn ($r) => $r['nom'], $rattacheesProblematiques));
+        header("Location: ecoles.php?msg=" . urlencode(
+            "Suppression refusée : cette école est tutrice de $noms, qui n'ont pas de code DSPS propre et/ou ont déjà des candidats — les détacher les rendrait orphelines. Réattachez-les d'abord à une autre tutrice."
+        ));
+        exit;
+    }
+
     try {
         $pdo->beginTransaction();
         $pdo->prepare("UPDATE ecoles SET ecole_tutrice_id = NULL WHERE ecole_tutrice_id = ?")->execute([$id]);

@@ -36,6 +36,29 @@ if ($nbCandidatsLies > 0 || $nbCentresLies > 0) {
     exit;
 }
 
+// Une rattachée détachée (ecole_tutrice_id -> NULL, cf. plus bas) sans code
+// DSPS propre n'a plus aucun moyen d'être comptée dans un centre — sauf si
+// elle est elle-même supprimée dans la même opération (auquel cas la
+// vérification candidats ci-dessus la couvre déjà).
+$stmtRattachees = $pdo->prepare("
+    SELECT er.id, er.nom, (er.code_dsps IS NULL OR er.code_dsps = '') AS sans_code_dsps,
+           (SELECT COUNT(*) FROM candidats WHERE ecole_id = er.id) AS nb_candidats
+    FROM ecoles er
+    WHERE er.ecole_tutrice_id IN ($placeholders) AND er.id NOT IN ($placeholders)
+");
+$stmtRattachees->execute(array_merge($ids, $ids));
+$rattacheesProblematiques = array_filter(
+    $stmtRattachees->fetchAll(),
+    fn ($r) => (int) $r['nb_candidats'] > 0 || (int) $r['sans_code_dsps'] === 1
+);
+
+if ($rattacheesProblematiques) {
+    $noms = implode(', ', array_map(fn ($r) => $r['nom'], $rattacheesProblematiques));
+    http_response_code(409);
+    echo json_encode(['success' => false, 'error' => "Suppression refusée : au moins une école est tutrice de $noms, qui n'ont pas de code DSPS propre et/ou ont déjà des candidats — les détacher les rendrait orphelines."]);
+    exit;
+}
+
 try {
     $pdo->beginTransaction();
     // Détache d'abord toute école rattachée à l'une des écoles supprimées,
