@@ -646,7 +646,7 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>👥 Gestion du Personnel</h2>
     <div>
-        <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-excel"></i> Importer Excel</button>
+        <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel ou Word)</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter</button>
     </div>
 </div>
@@ -791,7 +791,7 @@ include '../views/layouts/header.php';
         <form method="POST" enctype="multipart/form-data">
             <div class="modal-content">
                 <div class="modal-header bg-success text-white">
-                    <h5 class="modal-title">Importer le Personnel (Excel)</h5>
+                    <h5 class="modal-title">Importer le Personnel (Excel ou Word)</h5>
                     <a href="enseignants.php" class="btn-close btn-close-white"></a>
                 </div>
                 <div class="modal-body">
