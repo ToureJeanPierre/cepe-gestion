@@ -87,6 +87,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // une répartition manuelle existante, au lieu de l'ignorer silencieusement.
     $ecraserManuel = isset($_POST['ecraser_manuel']) && $_POST['ecraser_manuel'] == '1';
 
+    // Une liste d'émargement déjà générée (candidat -> salle -> numéro
+    // d'ordre nominatif) est liée aux salles par une clé étrangère ON DELETE
+    // CASCADE : régénérer un centre l'efface d'un coup sans le dire, jusqu'ici
+    // seul l'écrasement d'une répartition MANUELLE était signalé. Même
+    // logique de confirmation explicite pour ce cas.
+    $ecraserEmargement = isset($_POST['ecraser_emargement']) && $_POST['ecraser_emargement'] == '1';
+
 
     /*
     |--------------------------------------------------------------------------
@@ -208,6 +215,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         if ($effectif <= 0) {
 
+                            // Même garde-fou que plus bas : ne pas effacer une
+                            // liste d'émargement déjà générée sans confirmation
+                            // explicite, même dans ce cas (effectif retombé à 0).
+                            $stmtEmargementVide = $pdo->prepare("
+                                SELECT COUNT(*)
+                                FROM plan_salle_candidats psc
+                                INNER JOIN plan_salles ps ON ps.id = psc.plan_salle_id
+                                WHERE ps.centre_effectif_id = ? AND ps.est_manuel = 0
+                            ");
+                            $stmtEmargementVide->execute([$centreEffectifId]);
+                            if ((int) $stmtEmargementVide->fetchColumn() > 0 && !$ecraserEmargement) {
+                                $avertissements[] =
+                                    $centre['nom_centre']
+                                    . " : effectif retombé à 0 mais une liste d'émargement existe "
+                                    . "déjà pour ce centre. Elle n'a pas été effacée (cochez « écraser "
+                                    . "aussi la liste d'émargement » pour confirmer).";
+                                continue;
+                            }
+
                             $stmtDelete = $pdo->prepare("
                                 DELETE FROM plan_salles
                                 WHERE centre_effectif_id = ?
@@ -256,6 +282,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 . " : une répartition manuelle existe déjà. "
                                 . "Elle n'a pas été modifiée (cochez « écraser les répartitions "
                                 . "manuelles » ou utilisez le bouton du centre pour la remplacer).";
+
+                            continue;
+                        }
+
+
+                        /*
+                        |--------------------------------------------------------------------------
+                        | NE JAMAIS ÉCRASER UNE LISTE D'ÉMARGEMENT DÉJÀ GÉNÉRÉE SANS CONFIRMATION
+                        |--------------------------------------------------------------------------
+                        */
+
+                        $stmtEmargement = $pdo->prepare("
+                            SELECT COUNT(*)
+                            FROM plan_salle_candidats psc
+                            INNER JOIN plan_salles ps ON ps.id = psc.plan_salle_id
+                            WHERE ps.centre_effectif_id = ?
+                        ");
+                        $stmtEmargement->execute([$centreEffectifId]);
+                        $aUneListeEmargement = (int) $stmtEmargement->fetchColumn() > 0;
+
+                        if ($aUneListeEmargement && !$ecraserEmargement) {
+
+                            $avertissements[] =
+                                $centre['nom_centre']
+                                . " : une liste d'émargement (candidats déjà répartis nominativement "
+                                . "par salle) existe déjà pour ce centre. Régénérer l'effacerait — "
+                                . "cochez « écraser aussi la liste d'émargement » pour confirmer.";
 
                             continue;
                         }
@@ -1258,24 +1311,114 @@ if ($examenSelectionneId > 0) {
 | Affiché en permanence (pas seulement après une génération) pour que
 | l'écart soit visible avant de lancer/valider une répartition.
 */
+// effectif_calcule ci-dessus vient de centre_effectifs, une valeur stockée
+// qui n'est recalculée qu'en visitant l'onglet Centres — un centre jamais
+// revisité depuis de nouvelles inscriptions y reste figé, et comparer deux
+// champs stockés l'un à l'autre (comme avant) peut alors dire "aucun écart"
+// alors que les deux sont pareillement périmés. On recompte ici le nombre
+// RÉEL de candidats (même requête que centres.php) pour comparer contre du
+// vrai, pas contre une autre valeur potentiellement tout aussi obsolète —
+// et on inclut aussi les centres qui n'ont encore AUCUNE ligne centre_effectifs
+// (jamais ouverts depuis l'onglet Centres), invisibles jusqu'ici de ce
+// contrôle bien qu'ils puissent déjà avoir de vrais candidats en attente.
+$examenSelectionneCode = null;
+foreach ($examens as $ex) {
+    if ((int) $ex['id'] === $examenSelectionneId) {
+        $examenSelectionneCode = $ex['code'];
+        break;
+    }
+}
+$estFinalPourEcart = $examenSelectionneCode === 'CEPE_FINAL';
+
+$stmtCentresTous = $pdo->prepare("SELECT c.id AS centre_id, e.nom AS nom_centre FROM centres c INNER JOIN ecoles e ON e.id = c.ecole_id WHERE c.annee_id = ?");
+$stmtCentresTous->execute([$anneeId]);
+$tousLesCentresPourEcart = $stmtCentresTous->fetchAll();
+
+$condEligibleCEPEEcart = conditionCandidatEligibleCEPE('ca');
+$effectifsLiveParCentre = [];
+foreach ($tousLesCentresPourEcart as $tc) {
+    $cid = (int) $tc['centre_id'];
+
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*)
+        FROM candidats AS ca
+        INNER JOIN ecoles AS e ON e.id = ca.ecole_id
+        WHERE ca.annee_id = ?
+          AND $condEligibleCEPEEcart
+          AND (
+                e.id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
+             OR e.ecole_tutrice_id IN (SELECT ecole_composante_id FROM ecole_centre WHERE centre_id = ?)
+          )
+    ");
+    $stmt->execute([$anneeId, $cid, $cid]);
+    $effectifLive = (int) $stmt->fetchColumn();
+
+    if ($estFinalPourEcart) {
+        $stmtLibre = $pdo->prepare("SELECT COUNT(*) FROM candidats WHERE annee_id = ? AND est_candidat_libre = 1 AND centre_examen_id = ?");
+        $stmtLibre->execute([$anneeId, $cid]);
+        $effectifLive += (int) $stmtLibre->fetchColumn();
+    }
+
+    $effectifsLiveParCentre[$cid] = $effectifLive;
+}
+
 $centresEcartEffectif = [];
-foreach ($plans as $p) {
+foreach ($tousLesCentresPourEcart as $tc) {
+    $cid = (int) $tc['centre_id'];
+    $effectifLive = $effectifsLiveParCentre[$cid];
+    $p = $plans[$cid] ?? null;
+
+    if (!$p) {
+        // Aucune ligne centre_effectifs pour ce centre sur cet examen : il
+        // n'a encore jamais été ouvert depuis l'onglet Centres.
+        if ($effectifLive > 0) {
+            $centresEcartEffectif[] = [
+                'nom' => $tc['nom_centre'],
+                'effectif_calcule' => $effectifLive,
+                'effectif_retenu' => null,
+                'somme_salles' => null,
+                'ecart_effectif' => false,
+                'ecart_plan' => false,
+                'jamais_calcule' => true,
+            ];
+        }
+        continue;
+    }
+
     $sommeSalles = array_sum(array_column($p['salles'], 'effectif_retenu'));
     $nbSalles = count($p['salles']);
 
-    $ecartManuel = $p['effectif_est_manuel'] && $p['effectif_calcule'] !== $p['effectif_retenu'];
+    $ecartEffectif = $effectifLive !== $p['effectif_retenu'];
     $ecartPlan = $nbSalles > 0 && $sommeSalles !== $p['effectif_retenu'];
 
-    if ($ecartManuel || $ecartPlan) {
+    if ($ecartEffectif || $ecartPlan) {
         $centresEcartEffectif[] = [
             'nom' => $p['nom_centre'],
-            'effectif_calcule' => $p['effectif_calcule'],
+            'effectif_calcule' => $effectifLive,
             'effectif_retenu' => $p['effectif_retenu'],
             'somme_salles' => $sommeSalles,
-            'ecart_manuel' => $ecartManuel,
+            'ecart_effectif' => $ecartEffectif,
             'ecart_plan' => $ecartPlan,
+            'jamais_calcule' => false,
         ];
     }
+}
+
+// Centres dont au moins une salle a déjà une liste d'émargement générée
+// (candidats affectés nominativement) : régénérer effacerait cette liste,
+// affiché pour avertir avant de cliquer "Générer ce centre" (cf. le même
+// contrôle côté serveur dans le traitement generer_plan ci-dessus).
+$centreEffectifIdsAvecEmargement = [];
+if ($examenSelectionneId > 0) {
+    $stmtEmargementExistant = $pdo->prepare("
+        SELECT DISTINCT ps.centre_effectif_id
+        FROM plan_salle_candidats psc
+        INNER JOIN plan_salles ps ON ps.id = psc.plan_salle_id
+        INNER JOIN centre_effectifs ce ON ce.id = ps.centre_effectif_id
+        WHERE ce.examen_id = ?
+    ");
+    $stmtEmargementExistant->execute([$examenSelectionneId]);
+    $centreEffectifIdsAvecEmargement = array_flip($stmtEmargementExistant->fetchAll(PDO::FETCH_COLUMN));
 }
 
 include '../views/layouts/header.php';
@@ -1415,11 +1558,15 @@ include '../views/layouts/header.php';
                 <?php foreach ($centresEcartEffectif as $ec): ?>
                     <li>
                         <strong><?= htmlspecialchars($ec['nom']) ?></strong> :
-                        <?php if ($ec['ecart_manuel']): ?>
-                            effectif retenu manuellement (<?= $ec['effectif_retenu'] ?>)
+                        <?php if ($ec['jamais_calcule']): ?>
+                            <?= $ec['effectif_calcule'] ?> candidat(s) en attente, effectif jamais calculé
+                            pour cet examen — ouvrez l'onglet Centres pour ce centre avant de répartir.
+                        <?php endif; ?>
+                        <?php if ($ec['ecart_effectif']): ?>
+                            effectif retenu (<?= $ec['effectif_retenu'] ?>)
                             ≠ décompte actuel des candidats (<?= $ec['effectif_calcule'] ?>).
                         <?php endif; ?>
-                        <?php if ($ec['ecart_manuel'] && $ec['ecart_plan']): ?> Et <?php endif; ?>
+                        <?php if ($ec['ecart_effectif'] && $ec['ecart_plan']): ?> Et <?php endif; ?>
                         <?php if ($ec['ecart_plan']): ?>
                             le plan de salle généré (<?= $ec['somme_salles'] ?> au total)
                             ne correspond plus à l'effectif retenu (<?= $ec['effectif_retenu'] ?>)
@@ -1540,6 +1687,23 @@ include '../views/layouts/header.php';
 
                     </div>
 
+                    <div class="form-check">
+
+                        <input
+                            type="checkbox"
+                            class="form-check-input"
+                            id="ecraserEmargementGlobal"
+                            name="ecraser_emargement"
+                            value="1"
+                            onchange="if (this.checked) { this.checked = confirm('Ceci va aussi effacer les listes d\'émargement (candidat → salle) déjà générées, pour tous les centres de cet examen. Continuer ?'); }"
+                        >
+
+                        <label class="form-check-label" for="ecraserEmargementGlobal">
+                            Écraser aussi les listes d'émargement déjà générées (sinon les centres concernés sont ignorés)
+                        </label>
+
+                    </div>
+
                 </div>
 
             </form>
@@ -1654,6 +1818,8 @@ include '../views/layouts/header.php';
                 }
             }
 
+            $centreAEmargement = isset($centreEffectifIdsAvecEmargement[$plan['centre_effectif_id']]);
+
             // Regroupe les salles par effectif identique (ex: "10 salles de 30,
             // 5 salles de 29"), du plus grand effectif au plus petit, pour un
             // coup d'œil rapide avant le détail salle par salle.
@@ -1731,13 +1897,20 @@ include '../views/layouts/header.php';
                                 <?php if ($centreARepartitionManuelle): ?>
                                     <input type="hidden" name="ecraser_manuel" value="1">
                                 <?php endif; ?>
+                                <?php if ($centreAEmargement): ?>
+                                    <input type="hidden" name="ecraser_emargement" value="1">
+                                <?php endif; ?>
 
                                 <button
                                     type="submit"
                                     name="generer_plan"
                                     class="btn btn-outline-primary btn-sm"
-                                    <?php if ($centreARepartitionManuelle): ?>
+                                    <?php if ($centreARepartitionManuelle && $centreAEmargement): ?>
+                                        onclick="return confirm('Ce centre a une répartition manuelle ET une liste d\'émargement déjà générées. Voulez-vous tout écraser et régénérer automatiquement ?');"
+                                    <?php elseif ($centreARepartitionManuelle): ?>
                                         onclick="return confirm('Ce centre a une répartition manuelle existante. Voulez-vous l\'écraser et régénérer automatiquement ?');"
+                                    <?php elseif ($centreAEmargement): ?>
+                                        onclick="return confirm('Ce centre a déjà une liste d\'émargement générée (candidats répartis nominativement). La régénérer l\'effacera. Continuer ?');"
                                     <?php endif; ?>
                                 >
                                     <i class="bi bi-magic"></i>
