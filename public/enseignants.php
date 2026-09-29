@@ -5,6 +5,15 @@ require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/docx_helpers.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
+// Le personnel est rattaché à l'année scolaire (personnel.annee_id), au même
+// titre que les candidats : ce contrôle manquait ici alors qu'il existe déjà
+// partout ailleurs (candidats.php, affectations.php, centres.php...), ce qui
+// permettait d'importer/modifier/supprimer du personnel sur une année
+// archivée malgré le cadenas affiché dans la barre du haut.
+if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
+}
+
 // ==========================================
 // IMPORT DIRECT DES FICHIERS WORD (.docx) ENVOYÉS PAR LES DIRECTEURS
 // ==========================================
@@ -501,8 +510,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
 // ==========================================
 // TRAITEMENT : SUPPRESSION
 // ==========================================
-if (isset($_GET['supprimer'])) {
-    $pdo->prepare("DELETE FROM personnel WHERE id = ?")->execute([(int) $_GET['supprimer']]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['supprimer'])) {
+    $pdo->prepare("DELETE FROM personnel WHERE id = ?")->execute([(int) $_POST['supprimer']]);
     header("Location: enseignants.php");
     exit;
 }
@@ -761,7 +770,10 @@ include '../views/layouts/header.php';
                     <td><?= htmlspecialchars($p['telephone']) ?></td>
                     <td>
                         <a href="?modifier=<?= $p['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
-                        <a href="?supprimer=<?= $p['id'] ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Supprimer cette personne ?')"><i class="bi bi-trash"></i></a>
+                        <form method="POST" class="d-inline" onsubmit="return confirm('Supprimer cette personne ?');">
+                            <input type="hidden" name="supprimer" value="<?= $p['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                        </form>
                     </td>
                 </tr>
                 <?php endforeach; ?>

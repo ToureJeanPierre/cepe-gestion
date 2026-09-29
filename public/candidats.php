@@ -67,7 +67,7 @@ function mapperLignesDocxCandidats(array $lignesDocx, string $nomEcole, ?string 
 
 // Les candidats sont rattachés à l'année scolaire consultée ($anneeId, résolu par
 // config/database.php). Toute écriture est bloquée si cette année est archivée.
-if ($anneeLectureSeule && ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['supprimer']))) {
+if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
     die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
 }
 
@@ -298,8 +298,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajouter_candidat'])) 
 // ==========================================
 // TRAITEMENT : SUPPRESSION
 // ==========================================
-if (isset($_GET['supprimer'])) {
-    $candidatIdSuppr = (int) $_GET['supprimer'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['supprimer'])) {
+    $candidatIdSuppr = (int) $_POST['supprimer'];
     $stmtAnnee = $pdo->prepare("SELECT annee_id FROM candidats WHERE id = ?");
     $stmtAnnee->execute([$candidatIdSuppr]);
     $anneeCandidat = $stmtAnnee->fetchColumn();
@@ -655,7 +655,10 @@ include '../views/layouts/header.php';
                         </span>
                     </td>
                     <td>
-                        <a href="?supprimer=<?= $c['id'] ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Supprimer ce candidat ?')"><i class="bi bi-trash"></i></a>
+                        <form method="POST" class="d-inline" onsubmit="return confirm('Supprimer ce candidat ?');">
+                            <input type="hidden" name="supprimer" value="<?= $c['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                        </form>
                     </td>
                 </tr>
                 <?php endforeach; ?>

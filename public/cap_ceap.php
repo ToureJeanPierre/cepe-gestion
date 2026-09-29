@@ -12,7 +12,7 @@ $pageTitle = 'CAP / CEAP';
 if (!$anneeId) {
     die("Aucune année scolaire n'existe dans la base de données.");
 }
-if ($anneeLectureSeule && ($_SERVER['REQUEST_METHOD'] === 'POST' || isset($_GET['supprimer']))) {
+if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
     die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
 }
 
@@ -54,8 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter']) || isset(
 // ==========================================
 // TRAITEMENT : SUPPRESSION
 // ==========================================
-if (isset($_GET['supprimer'])) {
-    $pdo->prepare("DELETE FROM cap_ceap_candidats WHERE id = ? AND annee_id = ?")->execute([(int) $_GET['supprimer'], $anneeId]);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['supprimer'])) {
+    $pdo->prepare("DELETE FROM cap_ceap_candidats WHERE id = ? AND annee_id = ?")->execute([(int) $_POST['supprimer'], $anneeId]);
     header("Location: cap_ceap.php");
     exit;
 }
@@ -143,7 +143,10 @@ include '../views/layouts/header.php';
                         <td><?= htmlspecialchars($c['observations']) ?></td>
                         <td>
                             <a href="?modifier=<?= $c['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
-                            <a href="?supprimer=<?= $c['id'] ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Supprimer ce candidat ?')"><i class="bi bi-trash"></i></a>
+                            <form method="POST" class="d-inline" onsubmit="return confirm('Supprimer ce candidat ?');">
+                                <input type="hidden" name="supprimer" value="<?= $c['id'] ?>">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                            </form>
                         </td>
                     </tr>
                 <?php endforeach; ?>

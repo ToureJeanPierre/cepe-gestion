@@ -98,8 +98,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_ecoles'])) {
 // ==========================================
 // TRAITEMENT : SUPPRESSION
 // ==========================================
-if (isset($_GET['supprimer'])) {
-    $id = (int)$_GET['supprimer'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['supprimer'])) {
+    $id = (int) $_POST['supprimer'];
 
     // candidats.ecole_id et centres.ecole_id n'ont pas de contrainte de clé
     // étrangère vers ecoles (seul ecole_tutrice_id en a une) : sans ce
@@ -362,7 +362,12 @@ include '../views/layouts/header.php';
                                         <li><a class="dropdown-item" href="enseignants.php?ecole_id=<?= $e['id'] ?>"><i class="bi bi-person-badge me-2"></i>Personnel</a></li>
                                         <li><a class="dropdown-item" href="?modifier=<?= $e['id'] ?>"><i class="bi bi-pencil me-2"></i>Modifier</a></li>
                                         <li><hr class="dropdown-divider"></li>
-                                        <li><a class="dropdown-item text-danger" href="?supprimer=<?= $e['id'] ?>" onclick="return confirm('Supprimer ?')"><i class="bi bi-trash me-2"></i>Supprimer</a></li>
+                                        <li>
+                                            <form method="POST" onsubmit="return confirm('Supprimer ?');">
+                                                <input type="hidden" name="supprimer" value="<?= $e['id'] ?>">
+                                                <button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Supprimer</button>
+                                            </form>
+                                        </li>
                                     </ul>
                                 </div>
                             </td>
