@@ -36,6 +36,41 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// ==========================================
+// AUTHENTIFICATION
+// ==========================================
+// config/database.php est inclus en tout premier par les 30+ pages de
+// public/ (index, tous les pdf_*.php, tous les api_*.php...) : un seul
+// point d'accroche ici couvre toute l'application sans avoir à modifier
+// chaque fichier. Exemptions : les scripts CLI (migrations/run_migration_*.php,
+// qui incluent ce même fichier) et login.php/logout.php lui-même, pour ne
+// pas créer de redirection en boucle.
+if (PHP_SAPI !== 'cli') {
+    $scriptCourant = basename($_SERVER['SCRIPT_NAME'] ?? '');
+    $pagesSansAuth = ['login.php', 'logout.php'];
+
+    if (!in_array($scriptCourant, $pagesSansAuth, true)) {
+        $utilisateurConnecte = null;
+        if (!empty($_SESSION['utilisateur_id'])) {
+            $stmtUtilisateur = $pdo->prepare("SELECT id, nom, actif FROM utilisateurs WHERE id = ?");
+            $stmtUtilisateur->execute([$_SESSION['utilisateur_id']]);
+            $utilisateurConnecte = $stmtUtilisateur->fetch();
+        }
+
+        // Revérifié à chaque requête (pas seulement à la connexion) : un
+        // compte désactivé pendant qu'il est déjà connecté doit perdre
+        // l'accès immédiatement, pas seulement à la prochaine tentative de
+        // connexion.
+        if (!$utilisateurConnecte || (int) $utilisateurConnecte['actif'] !== 1) {
+            unset($_SESSION['utilisateur_id'], $_SESSION['utilisateur_nom']);
+            header('Location: login.php');
+            exit;
+        }
+
+        $_SESSION['utilisateur_nom'] = $utilisateurConnecte['nom'];
+    }
+}
+
 $anneesDisponibles = $pdo->query("SELECT id, annee_scolaire, statut FROM annees ORDER BY annee_scolaire DESC")->fetchAll();
 
 $anneeActive = null;

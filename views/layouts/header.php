@@ -643,6 +643,46 @@ if (!function_exists('statCard')) {
         }
 
 
+        .topbar-user {
+
+            display: inline-flex;
+
+            align-items: center;
+
+            gap: 8px;
+
+            font-size: 13px;
+
+            font-weight: 600;
+
+            color: var(--text-dark);
+        }
+
+
+        .topbar-user i.bi-person-circle {
+
+            color: var(--primary);
+
+            font-size: 18px;
+        }
+
+
+        .topbar-user a {
+
+            color: var(--text-muted);
+
+            font-size: 17px;
+
+            display: inline-flex;
+        }
+
+
+        .topbar-user a:hover {
+
+            color: #b02a2a;
+        }
+
+
         /* ======================================================
            ZONE DE CONTENU
         ====================================================== */
@@ -1592,6 +1632,24 @@ if (!function_exists('statCard')) {
 
             </li>
 
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'utilisateurs.php' ? 'active' : '' ?>"
+                    href="utilisateurs.php"
+                >
+
+                    <i class="bi bi-people"></i>
+
+                    <span>
+                        Utilisateurs
+                    </span>
+
+                </a>
+
+            </li>
+
         </ul>
 
 
@@ -1655,6 +1713,12 @@ if (!function_exists('statCard')) {
                     — archivée (lecture seule)
                 <?php endif; ?>
 
+            </div>
+
+            <div class="topbar-user">
+                <i class="bi bi-person-circle"></i>
+                <?= htmlspecialchars($_SESSION['utilisateur_nom'] ?? '') ?>
+                <a href="logout.php" title="Déconnexion"><i class="bi bi-box-arrow-right"></i></a>
             </div>
 
 
