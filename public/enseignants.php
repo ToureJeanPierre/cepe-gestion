@@ -484,9 +484,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                     // école : la liste d'enseignants d'une école indique déjà qui en
                     // est le directeur et son téléphone, pas la peine de le ressaisir
                     // à la main dans l'onglet École.
-                    if ($categorieImport === 'enseignant' && $fonction === 'Directeur' && $ecoleId && !empty($telephone)) {
+                    // Remplace aussi le téléphone même s'il est vide dans ce fichier : un
+                    // changement de directeur ne doit pas laisser l'ancien numéro sur la fiche.
+                    if ($categorieImport === 'enseignant' && $fonction === 'Directeur' && $ecoleId) {
                         $pdo->prepare("UPDATE ecoles SET directeur_nom = ?, directeur_telephone = ? WHERE id = ?")
-                            ->execute([trim("$nom $prenoms"), $telephone, $ecoleId]);
+                            ->execute([trim("$nom $prenoms"), $telephone !== '' ? $telephone : null, $ecoleId]);
                     }
                 } catch (Exception $e) {
                     $erreurs[] = "Ligne $numLigne : " . $e->getMessage();
