@@ -2,6 +2,7 @@
 
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -40,7 +41,7 @@ foreach ($personnel as $p) {
         $p['ecole_nom'], $categories[$p['categorie']] ?? $p['categorie'], $p['grade'], $p['type_ecole'],
     ], null, 'A' . $ligne);
     // Texte explicite : téléphones (zéro initial) et matricules ne doivent pas devenir des nombres.
-    $sheet->setCellValueExplicit('D' . $ligne, (string) $p['telephone'], DataType::TYPE_STRING);
+    $sheet->setCellValueExplicit('D' . $ligne, normaliserTelephone($p['telephone']), DataType::TYPE_STRING);
     $sheet->setCellValueExplicit('E' . $ligne, (string) $identifiant, DataType::TYPE_STRING);
     $ligne++;
 }

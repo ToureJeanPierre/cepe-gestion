@@ -2,6 +2,7 @@
 
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
@@ -58,7 +59,7 @@ foreach ($ecoles as $e) {
         // ré-import verrouillerait d'un coup tous les groupes calculés.
         (int) $e['groupe_scolaire_manuel'] === 1 ? $e['groupe_scolaire'] : '',
         $e['directeur_nom'],
-        $e['directeur_telephone'],
+        normaliserTelephone($e['directeur_telephone']),
         $e['effectif_general'],
         (int) $e['est_centre_examen'] === 1 ? 'O' : 'N',
         '',
@@ -68,7 +69,7 @@ foreach ($ecoles as $e) {
     ], null, 'A' . $ligne);
     // Texte explicite : évite qu'Excel transforme un code DSPS ou un téléphone en nombre.
     $sheet->setCellValueExplicit('C' . $ligne, (string) $e['code_dsps'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-    $sheet->setCellValueExplicit('H' . $ligne, (string) $e['directeur_telephone'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+    $sheet->setCellValueExplicit('H' . $ligne, normaliserTelephone($e['directeur_telephone']), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
     $ligne++;
 }
 

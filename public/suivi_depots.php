@@ -1,6 +1,7 @@
 <?php
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 
 $pageTitle = 'Suivi des dépôts';
 
@@ -115,7 +116,7 @@ if (($_GET['format'] ?? '') === 'xlsx') {
             $etatsLibelles[$e['etat']],
         ], null, 'A' . $l);
         $feuille->setCellValueExplicit('C' . $l, (string) $e['code_dsps'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-        $feuille->setCellValueExplicit('F' . $l, (string) $e['directeur_telephone'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+        $feuille->setCellValueExplicit('F' . $l, normaliserTelephone($e['directeur_telephone']), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
         $l++;
     }
     $feuille->getStyle('A1:L1')->getFont()->setBold(true);
@@ -205,7 +206,10 @@ include '../views/layouts/header.php';
     <strong>Comment lire ce tableau :</strong> une école est "déposée" dès qu'au moins une fiche la concerne pour l'année consultée
     (import du fichier du directeur ou saisie manuelle). Les écoles rattachées à une tutrice apparaissent chacune sur leur propre ligne.
     Un fichier partiellement importé (ex. quelques lignes ignorées en erreur) compte comme déposé : vérifie le nombre de candidats
-    reçus par rapport à ce que le directeur t'a annoncé.
+    reçus par rapport à ce que le directeur t'a annoncé.<br>
+    <strong>Le directeur affiché vient de la fiche de l'école</strong> (liste des écoles importée d'Excel), pas du fichier du personnel :
+    une école peut donc avoir un directeur et un téléphone renseignés sans avoir encore déposé la liste de son personnel.
+    Les colonnes « Personnel » et « Candidats » ne comptent que les fiches réellement enregistrées.
 </div>
 
 <div class="card shadow-sm">
@@ -220,7 +224,7 @@ include '../views/layouts/header.php';
                     <th>Dernier dépôt</th>
                     <th class="text-end">Personnel</th>
                     <th>Dernier dépôt</th>
-                    <th>Directeur</th>
+                    <th>Directeur (fiche école)</th>
                     <th>Situation</th>
                 </tr>
             </thead>
@@ -267,7 +271,7 @@ include '../views/layouts/header.php';
                         <td class="small text-muted"><?= $e['dernier_personnel'] ? date('d/m/Y', strtotime($e['dernier_personnel'])) : '' ?></td>
                         <td class="small">
                             <?= htmlspecialchars((string) $e['directeur_nom']) ?>
-                            <?php if ($e['directeur_telephone']): ?><div class="text-muted"><?= htmlspecialchars($e['directeur_telephone']) ?></div><?php endif; ?>
+                            <?php if ($e['directeur_telephone']): ?><div class="text-muted"><?= htmlTelephones($e['directeur_telephone'], '') ?></div><?php endif; ?>
                         </td>
                         <td><span class="badge <?= $badge ?>"><?= $court ?></span></td>
                     </tr>

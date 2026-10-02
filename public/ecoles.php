@@ -6,6 +6,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 $pageTitle = 'Gestion des Écoles';
 
 require_once __DIR__ . '/../src/groupe_scolaire_helpers.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 
 // ==========================================
 // TRAITEMENT : IMPORTATION EXCEL
@@ -53,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_ecoles'])) {
                     $groupeVerrouille = !empty($groupeManuel) ? 1 : 0;
 
                     $directeurNom = trim($row[6] ?? '');
-                    $directeurTel = trim($row[7] ?? '');
+                    $directeurTel = normaliserTelephone(trim($row[7] ?? ''));
                     $effectif = !empty($row[8]) ? (int)$row[8] : 0;
                     $estCentre = (in_array(strtoupper($row[9] ?? ''), ['O', 'OUI', '1'])) ? 1 : 0;
 
@@ -191,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter_ecole']) || 
     $groupeVerrouille = !empty($groupeSaisi) ? 1 : 0;
 
     $directeur = trim($_POST['directeur_nom']);
-    $tel = trim($_POST['directeur_telephone']);
+    $tel = normaliserTelephone(trim($_POST['directeur_telephone']));
     $effectif = (int)($_POST['effectif_general'] ?? 0);
     $centre = isset($_POST['est_centre_examen']) ? 1 : 0;
 
@@ -370,7 +371,7 @@ include '../views/layouts/header.php';
                                     <span class="text-muted">-</span>
                                 <?php endif; ?>
                             </td>
-                            <td><?= htmlspecialchars($e['directeur_nom']) ?><br><small class="text-muted"><?= htmlspecialchars($e['directeur_telephone']) ?></small></td>
+                            <td><?= htmlspecialchars($e['directeur_nom']) ?><br><small class="text-muted"><?= htmlTelephones($e['directeur_telephone'], '') ?></small></td>
                             <td class="text-center">
                                 <?php if ((int) $e['nb_candidats'] > 0): ?>
                                     <a href="candidats.php?ecole_id=<?= (int) $e['id'] ?>" class="badge bg-primary text-decoration-none"><?= (int) $e['nb_candidats'] ?></a>

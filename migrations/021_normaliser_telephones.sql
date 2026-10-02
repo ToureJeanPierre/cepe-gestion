@@ -1,0 +1,4 @@
+-- Nettoyage de données (aucun changement de structure) : remet en forme les
+-- numéros déjà enregistrés pour qu'un numéro = 10 chiffres groupés par deux,
+-- plusieurs numéros séparés par " / ". Réalisé par run_migration_021.php avec
+-- les mêmes règles que l'import (src/telephone_helpers.php).

@@ -3,6 +3,7 @@
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 
 $ecoles = $pdo->query("
     SELECT e.*, t.nom AS nom_tuteur
@@ -29,7 +30,7 @@ foreach ($ecoles as $e) {
         . '<td>' . htmlspecialchars($e['statut']) . '</td>'
         . '<td>' . $rattachement . '</td>'
         . '<td>' . htmlspecialchars($e['directeur_nom'] ?? '-') . '</td>'
-        . '<td>' . htmlspecialchars($e['directeur_telephone'] ?? '-') . '</td>'
+        . '<td>' . htmlTelephones($e['directeur_telephone']) . '</td>'
         . '<td>' . htmlspecialchars($e['groupe_scolaire'] ?? '-') . '</td>'
         . '<td>' . ($e['est_centre_examen'] ? 'Oui' : '-') . '</td>'
         . '</tr>';

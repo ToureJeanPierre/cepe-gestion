@@ -3,6 +3,7 @@ session_start();
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/docx_helpers.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 // Le personnel est rattaché à l'année scolaire (personnel.annee_id), au même
@@ -343,7 +344,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                     if (empty($nom)) continue;
                     $prenoms = trim($row[1] ?? '');
                     $sexe = strtoupper(trim($row[2] ?? 'M')) === 'F' ? 'F' : 'M';
-                    $telephone = trim($row[3] ?? '');
+                    $telephone = normaliserTelephone(trim($row[3] ?? ''));
                     $identifiant = trim($row[4] ?? '') ?: null;
 
                     // Comparaison insensible à la casse : un directeur tape parfois
@@ -526,7 +527,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['ajouter']) || isset(
     $nom = trim($_POST['nom'] ?? '');
     $prenoms = trim($_POST['prenoms'] ?? '');
     $sexe = $_POST['sexe'] ?? 'M';
-    $telephone = trim($_POST['telephone'] ?? '');
+    $telephone = normaliserTelephone(trim($_POST['telephone'] ?? ''));
     $typeEcole = $_POST['type_ecole'] ?? 'Public';
     $matricule = trim($_POST['matricule'] ?? '') ?: null;
     $numAutoEnseigner = trim($_POST['numero_autorisation_enseigner'] ?? '') ?: null;
@@ -767,7 +768,7 @@ include '../views/layouts/header.php';
                         ?>
                         <span class="badge bg-<?= $badgeDispo ?>"><?= htmlspecialchars($p['disponibilite']) ?></span>
                     </td>
-                    <td><?= htmlspecialchars($p['telephone']) ?></td>
+                    <td><?= htmlTelephones($p['telephone'], '') ?></td>
                     <td>
                         <a href="?modifier=<?= $p['id'] ?>" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
                         <form method="POST" class="d-inline" onsubmit="return confirm('Supprimer cette personne ?');">
