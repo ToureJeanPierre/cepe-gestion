@@ -1504,6 +1504,24 @@ if (!function_exists('statCard')) {
 
             </li>
 
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'suivi_depots.php' ? 'active' : '' ?>"
+                    href="suivi_depots.php"
+                >
+
+                    <i class="bi bi-clipboard-check"></i>
+
+                    <span>
+                        Suivi des dépôts
+                    </span>
+
+                </a>
+
+            </li>
+
         </ul>
 
 
