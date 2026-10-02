@@ -57,6 +57,7 @@ $total = count($toutes);
 $nbAvecCandidats = count(array_filter($toutes, fn ($e) => (int) $e['nb_candidats'] > 0));
 $nbAvecPersonnel = count(array_filter($toutes, fn ($e) => (int) $e['nb_personnel'] > 0));
 $nbComplets = count(array_filter($toutes, fn ($e) => $e['etat'] === 'complet'));
+$nbDeposes = count(array_filter($toutes, fn ($e) => (int) $e['nb_candidats'] > 0 || (int) $e['nb_personnel'] > 0));
 $nbRien = count(array_filter($toutes, fn ($e) => $e['etat'] === 'rien'));
 $totalCandidats = array_sum(array_column($toutes, 'nb_candidats'));
 $totalPersonnel = array_sum(array_column($toutes, 'nb_personnel'));
@@ -75,6 +76,9 @@ $filtreType = $_GET['type'] ?? '';
 $recherche = trim($_GET['q'] ?? '');
 
 $ecoles = array_values(array_filter($toutes, function ($e) use ($filtreEtat, $filtreType, $recherche, $etatsLibelles) {
+    if ($filtreEtat === 'deposes' && (int) $e['nb_candidats'] === 0 && (int) $e['nb_personnel'] === 0) return false;
+    if ($filtreEtat === 'candidats_deposes' && (int) $e['nb_candidats'] === 0) return false;
+    if ($filtreEtat === 'personnel_deposes' && (int) $e['nb_personnel'] === 0) return false;
     if ($filtreEtat === 'candidats_a_relancer' && (int) $e['nb_candidats'] > 0) return false;
     if ($filtreEtat === 'personnel_a_relancer' && (int) $e['nb_personnel'] > 0) return false;
     if (isset($etatsLibelles[$filtreEtat]) && $e['etat'] !== $filtreEtat) return false;
@@ -82,6 +86,11 @@ $ecoles = array_values(array_filter($toutes, function ($e) use ($filtreEtat, $fi
     if ($recherche !== '' && mb_stripos($e['nom'], $recherche) === false) return false;
     return true;
 }));
+
+// Quand on regarde ceux qui ont déposé, les dépôts les plus récents d'abord.
+if (in_array($filtreEtat, ['deposes', 'candidats_deposes', 'personnel_deposes'], true)) {
+    usort($ecoles, fn ($a, $b) => max($b['dernier_candidat'] ?? '', $b['dernier_personnel'] ?? '') <=> max($a['dernier_candidat'] ?? '', $a['dernier_personnel'] ?? ''));
+}
 
 // ==========================================
 // EXPORT EXCEL (respecte les filtres en cours)
@@ -136,9 +145,27 @@ include '../views/layouts/header.php';
 
 <div class="row g-3 mb-4">
     <div class="col-md-3"><?php statCard('bi-building', 'navy', $total, 'Écoles', 'référentiel complet'); ?></div>
-    <div class="col-md-3"><?php statCard('bi-people', 'orange', $nbAvecCandidats . ' / ' . $total, 'Ont déposé leurs candidats', $totalCandidats . ' candidats reçus'); ?></div>
-    <div class="col-md-3"><?php statCard('bi-person-badge', 'green', $nbAvecPersonnel . ' / ' . $total, 'Ont déposé leur personnel', $totalPersonnel . ' enseignants reçus'); ?></div>
-    <div class="col-md-3"><?php statCard('bi-exclamation-circle', 'red', (string) $nbRien, 'Rien reçu du tout', $nbComplets . ' école(s) complète(s)'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-people', 'orange', $nbAvecCandidats . ' / ' . $total, 'Ont déposé leurs candidats', $totalCandidats . ' candidats reçus', 'suivi_depots.php?etat=candidats_deposes'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-person-badge', 'green', $nbAvecPersonnel . ' / ' . $total, 'Ont déposé leur personnel', $totalPersonnel . ' enseignants reçus', 'suivi_depots.php?etat=personnel_deposes'); ?></div>
+    <div class="col-md-3"><?php statCard('bi-exclamation-circle', 'red', (string) $nbRien, 'Rien reçu du tout', $nbComplets . ' école(s) complète(s)', 'suivi_depots.php?etat=rien'); ?></div>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <?php
+    $onglets = [
+        '' => ['Toutes les écoles', $total, 'btn-outline-secondary'],
+        'deposes' => ['✅ Ont déposé (candidats et/ou personnel)', $nbDeposes, 'btn-outline-success'],
+        'candidats_deposes' => ['Candidats déposés', $nbAvecCandidats, 'btn-outline-success'],
+        'personnel_deposes' => ['Personnel déposé', $nbAvecPersonnel, 'btn-outline-success'],
+        'rien' => ['⏳ N\'ont rien déposé', $nbRien, 'btn-outline-danger'],
+    ];
+    foreach ($onglets as $code => [$libelle, $nb, $classe]):
+        $actif = $filtreEtat === $code;
+    ?>
+        <a href="suivi_depots.php<?= $code !== '' ? '?etat=' . $code : '' ?>" class="btn btn-sm <?= $actif ? str_replace('outline-', '', $classe) : $classe ?>">
+            <?= $libelle ?> <span class="badge bg-light text-dark border"><?= $nb ?></span>
+        </a>
+    <?php endforeach; ?>
 </div>
 
 <form method="GET" class="row g-2 mb-3 align-items-end">
@@ -146,6 +173,9 @@ include '../views/layouts/header.php';
         <label class="form-label small mb-1">Situation</label>
         <select name="etat" class="form-select" onchange="this.form.submit()">
             <option value="">Toutes les écoles (<?= $total ?>)</option>
+            <option value="deposes" <?= $filtreEtat === 'deposes' ? 'selected' : '' ?>>Ont déposé quelque chose</option>
+            <option value="candidats_deposes" <?= $filtreEtat === 'candidats_deposes' ? 'selected' : '' ?>>Candidats déposés</option>
+            <option value="personnel_deposes" <?= $filtreEtat === 'personnel_deposes' ? 'selected' : '' ?>>Personnel déposé</option>
             <option value="candidats_a_relancer" <?= $filtreEtat === 'candidats_a_relancer' ? 'selected' : '' ?>>Candidats non déposés (à relancer)</option>
             <option value="personnel_a_relancer" <?= $filtreEtat === 'personnel_a_relancer' ? 'selected' : '' ?>>Personnel non déposé (à relancer)</option>
             <?php foreach ($etatsLibelles as $code => $libelle): ?>
