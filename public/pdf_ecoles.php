@@ -38,8 +38,4 @@ $html .= '</tbody></table>';
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'landscape');
-$dompdf->render();
-$dompdf->stream('repertoire_ecoles_' . date('Ymd') . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'repertoire_ecoles_' . date('Ymd'), 'landscape');

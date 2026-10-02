@@ -86,8 +86,4 @@ foreach ($parSuperviseur as $data) {
 
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
-$dompdf->stream('mission_supervision_' . $examen['code'] . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'mission_supervision_' . $examen['code'], 'portrait');

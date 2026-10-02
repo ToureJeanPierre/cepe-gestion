@@ -23,7 +23,7 @@ $listeMatieres = array_keys(matieresPourExamen($examen['code']));
 $estFinal = $examen['code'] === 'CEPE_FINAL';
 $condEligibleCEPE = conditionCandidatEligibleCEPE('c');
 $stmt = $pdo->prepare("
-    SELECT c.id, e.statut
+    SELECT c.id, c.est_candidat_libre, e.statut
     FROM candidats c
     LEFT JOIN ecoles e ON e.id = c.ecole_id
     WHERE c.annee_id = ?
@@ -89,7 +89,7 @@ $html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '
 </style></head><body>';
 
 $html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
-$html .= titreDocumentIepp('STATISTIQUE DE LA ' . strtoupper($examen['libelle']), '');
+$html .= titreDocumentIepp('STATISTIQUE DE LA ' . mb_strtoupper($examen['libelle']), '');
 
 $html .= '<table class="doc-table" style="margin-top:10px;"><thead><tr><th></th><th>Effectif</th><th>Admis</th><th>Pourcentage</th></tr></thead><tbody>';
 $html .= '<tr><td>PUBLIC</td><td>' . $effectifPublic . '</td><td>' . $admisPublic . '</td><td>' . $pct($admisPublic, $effectifPublic) . '</td></tr>';
@@ -105,8 +105,4 @@ $html .= '</tbody></table>';
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
-$dompdf->stream('statistiques_' . $examen['code'] . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'statistiques_' . $examen['code'], 'portrait');

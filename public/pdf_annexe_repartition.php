@@ -125,8 +125,4 @@ if (!$lignes) {
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'landscape');
-$dompdf->render();
-$dompdf->stream('annexe_repartition_' . $examen['code'] . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'annexe_repartition_' . $examen['code'], 'landscape');

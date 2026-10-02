@@ -88,8 +88,4 @@ foreach ($centres as $centre) {
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
-$dompdf->stream('emargement_' . $examen['code'] . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'emargement_' . $examen['code'], 'portrait');

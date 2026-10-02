@@ -25,7 +25,7 @@ $html = '<html><head><meta charset="UTF-8"><style>' . pdfStylesCommunes() . '
 </style></head><body>';
 
 $html .= enteteIepp($ANNEE_SCOLAIRE ?? '');
-$html .= titreDocumentIepp(strtoupper(CAP_CEAP_NATURES[$nature]) . ' - SESSION ' . date('Y'), 'BORDEREAUX DE TRANSMISSION DES DOSSIERS D\'INSCRIPTION');
+$html .= titreDocumentIepp(mb_strtoupper(CAP_CEAP_NATURES[$nature]) . ' - SESSION ' . date('Y'), 'BORDEREAUX DE TRANSMISSION DES DOSSIERS D\'INSCRIPTION');
 $html .= '<div style="text-align:center; margin-bottom:8px;">IEPP : YOPOUGON NIANGON &nbsp;&nbsp;&nbsp; DRENA/ET : ABIDJAN 3 &nbsp;&nbsp;&nbsp; Date : ' . date('d/m/Y') . '</div>';
 
 $html .= '<table class="doc-table"><thead><tr><th rowspan="2">N&deg;</th><th rowspan="2">Nom et Prénoms</th>';
@@ -52,8 +52,4 @@ $html .= '<div style="margin-top:30px;">Nom, prénoms, contact, signature<br>et 
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'landscape');
-$dompdf->render();
-$dompdf->stream('bordereau_detail_' . $nature . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'bordereau_detail_' . $nature, 'landscape');

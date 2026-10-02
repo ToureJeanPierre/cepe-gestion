@@ -923,6 +923,58 @@ if (!function_exists('statCard')) {
         }
 
 
+        .doc-ligne {
+
+            display: flex;
+
+            gap: 8px;
+
+            align-items: stretch;
+        }
+
+
+        .doc-ligne .doc-link {
+
+            flex: 1;
+
+            min-width: 0;
+        }
+
+
+        .doc-excel-btn {
+
+            display: inline-flex;
+
+            align-items: center;
+
+            gap: 6px;
+
+            padding: 0 12px;
+
+            border: 1px solid var(--border);
+
+            border-radius: 8px;
+
+            font-size: 13px;
+
+            font-weight: 600;
+
+            color: var(--ci-green);
+
+            white-space: nowrap;
+        }
+
+
+        .doc-excel-btn:hover {
+
+            background: rgba(0, 158, 73, 0.08);
+
+            border-color: var(--ci-green);
+
+            color: var(--ci-green);
+        }
+
+
         .doc-link-chevron {
 
             margin-left: auto;

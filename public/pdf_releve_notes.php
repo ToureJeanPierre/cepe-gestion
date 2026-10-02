@@ -266,8 +266,4 @@ $html .= '</body></html>';
 | RENDU PDF
 |--------------------------------------------------------------------------
 */
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'landscape');
-$dompdf->render();
-$dompdf->stream('releve_notes_' . $examen['code'] . '_' . $tri . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'releve_notes_' . $examen['code'] . '_' . $tri, 'landscape');

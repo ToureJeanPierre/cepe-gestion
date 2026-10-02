@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/document_export.php';
+
 // ==========================================
 // EN-TÊTES OFFICIELLES POUR LES DOCUMENTS IMPRIMÉS (dompdf)
 // ==========================================

@@ -47,8 +47,4 @@ $html .= '</tbody></table>';
 $html .= signatureIepp();
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
-$dompdf->stream('bordereau_recapitulatif_cap_ceap.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'bordereau_recapitulatif_cap_ceap', 'portrait');

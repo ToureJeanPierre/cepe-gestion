@@ -4,8 +4,6 @@ require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/pdf_letterhead.php';
 
-use Dompdf\Dompdf;
-use Dompdf\Options;
 use Iepp\CepeGestion\AffectationEngine;
 
 /*
@@ -211,10 +209,4 @@ if ($aFormulaireVierge) {
 
 $html .= '</body></html>';
 
-$options = new Options();
-$options->set('isRemoteEnabled', false);
-$dompdf = new Dompdf($options);
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
-$dompdf->stream('convocation_' . $type . '_' . $examen['code'] . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'convocation_' . $type . '_' . $examen['code'], 'portrait');

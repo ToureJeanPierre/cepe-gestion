@@ -117,8 +117,4 @@ foreach ($centres as $centre) {
 
 $html .= '</body></html>';
 
-$dompdf = creerDompdfIepp();
-$dompdf->loadHtml($html);
-$dompdf->setPaper('A4', 'portrait');
-$dompdf->render();
-$dompdf->stream('liste_acteurs_' . $examen['code'] . '.pdf', ['Attachment' => false]);
+diffuserDocumentIepp($html, 'liste_acteurs_' . $examen['code'], 'portrait');
