@@ -1522,6 +1522,42 @@ if (!function_exists('statCard')) {
 
             </li>
 
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'controle_depots.php' ? 'active' : '' ?>"
+                    href="controle_depots.php"
+                >
+
+                    <i class="bi bi-folder-check"></i>
+
+                    <span>
+                        Contrôle du dossier
+                    </span>
+
+                </a>
+
+            </li>
+
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'doublons.php' ? 'active' : '' ?>"
+                    href="doublons.php"
+                >
+
+                    <i class="bi bi-files"></i>
+
+                    <span>
+                        Doublons possibles
+                    </span>
+
+                </a>
+
+            </li>
+
         </ul>
 
 

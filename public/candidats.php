@@ -8,62 +8,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 $pageTitle = 'Gestion des Candidats CEPE';
 
-/**
- * Interprète une date de naissance venant d'un import (Excel ou Word) :
- * numéro de série Excel, ou texte JJ/MM/AAAA (format le plus courant dans
- * les documents français) — reconnu explicitement plutôt que laissé à
- * strtotime(), qui interprète un texte ambigu à l'américaine (MM/JJ/AAAA)
- * et peut donc inverser jour et mois en silence.
- */
-function parserDateNaissanceImport($valeurBrute): ?string
-{
-    if (empty($valeurBrute)) {
-        return null;
-    }
-    if (is_numeric($valeurBrute)) {
-        return \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($valeurBrute)->format('Y-m-d');
-    }
-    $texte = trim((string) $valeurBrute);
-    if (preg_match('#^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$#', $texte, $m)) {
-        return sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
-    }
-    $timestamp = strtotime($texte);
-    return $timestamp ? date('Y-m-d', $timestamp) : null;
-}
-
-/**
- * Reconstitue, à partir du tableau du modèle Word "Liste nominative des
- * candidats", des lignes compatibles avec l'ordre de colonnes de l'import
- * Excel (Nom, Prénoms, Sexe, Nationalité, DateNaiss, LieuNaiss, Matricule,
- * Acte, StatutDemande, NomÉcole, CodeDSPSÉcole) — École et CodeDSPS ne sont
- * pas des colonnes du fichier Word (un fichier = une école) : fournies par
- * l'appelant, déjà choisies dans le formulaire d'import.
- *
- * @return array<int, array<int, string>>
- */
-function mapperLignesDocxCandidats(array $lignesDocx, string $nomEcole, ?string $codeDsps): array
-{
-    // Certains modèles réels ont une 2ᵉ ligne d'en-tête (sous-titres de
-    // colonnes) ; on la détecte par mot-clé plutôt que de supposer un nombre
-    // fixe de lignes d'en-tête (cf. compterLignesEnteteDocx).
-    $motsClesEnteteCandidats = ['NOM', 'PRENOM', 'SEXE', 'NATIONALITE', 'NAISSANCE', 'MATRICULE', 'ACTE'];
-    $nbLignesEntete = compterLignesEnteteDocx($lignesDocx, $motsClesEnteteCandidats);
-    $donnees = array_slice($lignesDocx, $nbLignesEntete);
-
-    $rows = [];
-    foreach ($donnees as $ligne) {
-        // N°, NOM, PRENOMS, SEXE, NATIONALITE, DATE DE NAI., LIEU DE NAI., MATRICULE, ACTE DE NAI.
-        [$nom, $prenoms, $sexe, $nationalite, $dateNaiss, $lieuNaiss, $matricule, $acte] = array_pad(array_slice($ligne, 1, 8), 8, '');
-
-        if (trim($nom) === '') {
-            continue; // ligne vide du modèle, non remplie par le directeur
-        }
-
-        $rows[] = [$nom, $prenoms, $sexe, $nationalite, $dateNaiss, $lieuNaiss, $matricule, $acte, '', $nomEcole, $codeDsps ?? ''];
-    }
-
-    return $rows;
-}
+require_once __DIR__ . '/../src/depots_helpers.php';
 
 // Les candidats sont rattachés à l'année scolaire consultée ($anneeId, résolu par
 // config/database.php). Toute écriture est bloquée si cette année est archivée.
@@ -75,9 +20,10 @@ if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
 // TRAITEMENT : IMPORTATION EXCEL (Mise à jour intelligente)
 // ==========================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])) {
-    if (isset($_FILES['fichier_candidats']) && $_FILES['fichier_candidats']['error'] === 0) {
+    // Fichier téléversé, ou choisi dans le dossier de dépôts (contrôle du dossier).
+    if ($sourceImport = fichierImportSource($pdo, 'fichier_candidats')) {
         try {
-            $nomFichierCandidats = $_FILES['fichier_candidats']['name'];
+            $nomFichierCandidats = $sourceImport['nom'];
             $extensionCandidats = strtolower(pathinfo($nomFichierCandidats, PATHINFO_EXTENSION));
             $ecoleIdImportDocx = !empty($_POST['ecole_id_import_docx']) ? (int) $_POST['ecole_id_import_docx'] : null;
 
@@ -97,10 +43,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                     throw new Exception("École introuvable.");
                 }
 
-                $lignesDocx = extraireTableauDocx($_FILES['fichier_candidats']['tmp_name']);
+                $lignesDocx = extraireTableauDocx($sourceImport['tmp']);
                 $rows = mapperLignesDocxCandidats($lignesDocx, $ecoleDocx['nom'], $ecoleDocx['code_dsps']);
             } else {
-                $spreadsheet = IOFactory::load($_FILES['fichier_candidats']['tmp_name']);
+                $spreadsheet = IOFactory::load($sourceImport['tmp']);
                 $rows = $spreadsheet->getActiveSheet()->toArray();
                 array_shift($rows); // Saute en-tête
             }
@@ -259,7 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
             } else {
                 unset($_SESSION['import_erreurs']);
             }
-            header("Location: candidats.php?msg=" . urlencode($msg));
+            header("Location: " . urlRetourImport('candidats.php', $msg));
             exit;
 
         } catch (Exception $e) {
