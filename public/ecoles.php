@@ -371,7 +371,7 @@ include '../views/layouts/header.php';
                                     <span class="text-muted">-</span>
                                 <?php endif; ?>
                             </td>
-                            <td><?= htmlspecialchars($e['directeur_nom']) ?><br><small class="text-muted"><?= htmlTelephones($e['directeur_telephone'], '') ?></small></td>
+                            <td><?= htmlspecialchars((string) $e['directeur_nom']) ?><br><small class="text-muted"><?= htmlTelephones($e['directeur_telephone'], '') ?></small></td>
                             <td class="text-center">
                                 <?php if ((int) $e['nb_candidats'] > 0): ?>
                                     <a href="candidats.php?ecole_id=<?= (int) $e['id'] ?>" class="badge bg-primary text-decoration-none"><?= (int) $e['nb_candidats'] ?></a>
