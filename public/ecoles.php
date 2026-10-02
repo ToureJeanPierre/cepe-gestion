@@ -280,6 +280,7 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>🏫 Module Écoles</h2>
     <div>
+        <a href="export_ecoles.php" class="btn btn-outline-success me-2"><i class="bi bi-file-earmark-arrow-down"></i> Exporter Excel</a>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-excel"></i> Importer Excel</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Nouvelle École</button>
     </div>
