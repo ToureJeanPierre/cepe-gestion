@@ -323,11 +323,77 @@ if (!function_exists('calculerBilanEleve')) {
     }
 }
 
+if (!function_exists('identiteDifferente')) {
+    /**
+     * Compare l'identité renvoyée par le site à celle déclarée par l'école :
+     * nom, prénoms (au moins un prénom en commun, accents/casse ignorés) et date de
+     * naissance. Un matricule saisi avec une faute peut désigner un AUTRE élève.
+     *
+     * @return string[] différences constatées (vide = concordant)
+     */
+    function identiteDifferente(array $identiteSite, array $candidat): array
+    {
+        $mots = function (?string $t): array {
+            $t = retirerAccents(mb_strtoupper(trim((string) $t)));
+            $t = preg_replace('/[^A-Z0-9]+/', ' ', $t);
+            $m = array_filter(explode(' ', $t), fn ($x) => $x !== '');
+            sort($m);
+            return array_values($m);
+        };
+        $diff = [];
+        $nomSite = $identiteSite['Nom'] ?? '';
+        if ($nomSite !== '' && $mots($nomSite) !== $mots($candidat['nom'] ?? '')) {
+            $diff['nom'] = "nom : site « $nomSite » ≠ déclaré « " . ($candidat['nom'] ?? '') . " »";
+        }
+        $prenomsSite = $identiteSite['Prénom(s)'] ?? '';
+        if ($prenomsSite !== '' && !array_intersect($mots($prenomsSite), $mots($candidat['prenoms'] ?? ''))) {
+            $diff['prenoms'] = "prénoms : site « $prenomsSite » ≠ déclarés « " . ($candidat['prenoms'] ?? '') . " »";
+        }
+        $naissanceSite = $identiteSite['Date et lieu de naissance'] ?? '';
+        if (preg_match('#(\d{1,2})/(\d{1,2})/(\d{4})#', $naissanceSite, $m) && !empty($candidat['date_naissance'])) {
+            $iso = sprintf('%04d-%02d-%02d', (int) $m[3], (int) $m[2], (int) $m[1]);
+            if ($iso !== $candidat['date_naissance']) {
+                $diff['naissance'] = "date de naissance : site " . sprintf('%02d/%02d/%04d', (int) $m[1], (int) $m[2], (int) $m[3])
+                    . " ≠ déclarée " . date('d/m/Y', strtotime($candidat['date_naissance']));
+            }
+        }
+        return $diff;
+    }
+}
+
+if (!function_exists('appliquerControleIdentite')) {
+    /**
+     * Toute différence d'identité est signalée. Si le nom ET les prénoms du site ne
+     * correspondent pas à l'élève déclaré, le matricule est très probablement celui
+     * d'un autre enfant : traitement manuel, AUCUNE ligne DFA (on ne téléverse jamais
+     * une DFA pour un matricule qui n'est peut-être pas le bon).
+     *
+     * @param string[] $diffs résultat de identiteDifferente() (clés nom / prenoms / naissance)
+     */
+    function appliquerControleIdentite(array $bilan, array $diffs): array
+    {
+        foreach ($diffs as $d) {
+            $bilan['avertissements'][] = "Identité différente sur le site (matricule d'un autre élève ?) — $d";
+        }
+        if (isset($diffs['nom'], $diffs['prenoms'])) {
+            $bilan['statut'] = 'A_VERIFIER';
+            $bilan['lignes'] = [];
+            $bilan['changement_ecole'] = false;
+            $bilan['motif'] = "Le nom et les prénoms du site ne correspondent pas à l'élève déclaré : matricule probablement erroné, à vérifier";
+        }
+        return $bilan;
+    }
+}
+
 if (!function_exists('enregistrerCursusEtBilan')) {
     /**
      * Enregistre (ou met à jour) les données DESPS d'un candidat et recalcule/stocke son bilan.
+     * Données issues du site : source 'site', identité et cursus conservés ; l'identité
+     * du site est comparée à celle déclarée (avertissement si différente).
      *
-     * @param array{introuvable?:int, ecole_desps?:?string, classe_desps?:?string, annee_debut?:?int, ecole_conforme?:int} $donnees
+     * @param array $candidat id, matricule_dsps, ecole_id (+ nom, prenoms, date_naissance pour le contrôle d'identité)
+     * @param array $donnees  introuvable, ecole_desps, classe_desps, annee_debut, ecole_conforme,
+     *                        source ('site'|'manuel'), identite_desps (array), cursus_brut (array), derniere_dfa
      */
     function enregistrerCursusEtBilan(PDO $pdo, array $candidat, array $donnees, int $anneeExamenDebut, array $indexEcoles): array
     {
@@ -338,18 +404,32 @@ if (!function_exists('enregistrerCursusEtBilan')) {
             'annee_debut' => $donnees['annee_debut'] ?? null,
             'ecole_conforme' => (int) ($donnees['ecole_conforme'] ?? 0),
         ];
+        $source = ($donnees['source'] ?? 'manuel') === 'site' ? 'site' : 'manuel';
+        $identite = is_array($donnees['identite_desps'] ?? null) ? $donnees['identite_desps'] : null;
+        $cursusBrut = is_array($donnees['cursus_brut'] ?? null) ? $donnees['cursus_brut'] : null;
+
         $bilan = calculerBilanEleve((string) $candidat['matricule_dsps'], (int) $candidat['ecole_id'], $cursus, $anneeExamenDebut, $indexEcoles);
+        if ($identite) {
+            $bilan = appliquerControleIdentite($bilan, identiteDifferente($identite, $candidat));
+        }
 
         $pdo->prepare("
-            INSERT INTO desps_cursus (candidat_id, introuvable, ecole_desps, classe_desps, annee_debut, ecole_conforme,
+            INSERT INTO desps_cursus (candidat_id, introuvable, source, verifie_le, identite_desps, cursus_brut, derniere_dfa,
+                                      ecole_desps, classe_desps, annee_debut, ecole_conforme,
                                       statut, changement_ecole, motif, lignes_dfa, avertissements, annee_examen_debut, calcule_le)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE introuvable = VALUES(introuvable), ecole_desps = VALUES(ecole_desps), classe_desps = VALUES(classe_desps),
+            VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE introuvable = VALUES(introuvable), source = VALUES(source), verifie_le = NOW(),
+                identite_desps = VALUES(identite_desps), cursus_brut = VALUES(cursus_brut), derniere_dfa = VALUES(derniere_dfa),
+                ecole_desps = VALUES(ecole_desps), classe_desps = VALUES(classe_desps),
                 annee_debut = VALUES(annee_debut), ecole_conforme = VALUES(ecole_conforme), statut = VALUES(statut),
                 changement_ecole = VALUES(changement_ecole), motif = VALUES(motif), lignes_dfa = VALUES(lignes_dfa),
                 avertissements = VALUES(avertissements), annee_examen_debut = VALUES(annee_examen_debut), calcule_le = NOW()
         ")->execute([
-            (int) $candidat['id'], $cursus['introuvable'], $cursus['ecole_desps'], $cursus['classe_desps'], $cursus['annee_debut'],
+            (int) $candidat['id'], $cursus['introuvable'], $source,
+            $identite ? json_encode($identite, JSON_UNESCAPED_UNICODE) : null,
+            $cursusBrut ? json_encode($cursusBrut, JSON_UNESCAPED_UNICODE) : null,
+            $donnees['derniere_dfa'] ?? null,
+            $cursus['ecole_desps'], $cursus['classe_desps'], $cursus['annee_debut'],
             $cursus['ecole_conforme'], $bilan['statut'], $bilan['changement_ecole'] ? 1 : 0, $bilan['motif'],
             json_encode($bilan['lignes'], JSON_UNESCAPED_UNICODE), json_encode($bilan['avertissements'], JSON_UNESCAPED_UNICODE), $anneeExamenDebut,
         ]);
@@ -363,13 +443,16 @@ if (!function_exists('recalculerTousLesBilans')) {
     {
         $index = indexEcolesDfa($pdo);
         $stmt = $pdo->prepare("
-            SELECT c.id, c.matricule_dsps, c.ecole_id, d.introuvable, d.ecole_desps, d.classe_desps, d.annee_debut, d.ecole_conforme
+            SELECT c.id, c.nom, c.prenoms, c.date_naissance, c.matricule_dsps, c.ecole_id, d.introuvable, d.ecole_desps, d.classe_desps,
+                   d.annee_debut, d.ecole_conforme, d.source, d.derniere_dfa, d.identite_desps, d.cursus_brut
             FROM desps_cursus d INNER JOIN candidats c ON c.id = d.candidat_id
             WHERE c.annee_id = ? AND c.est_candidat_libre = 0 AND c.ecole_id IS NOT NULL
         ");
         $stmt->execute([$anneeId]);
         $n = 0;
         foreach ($stmt->fetchAll() as $r) {
+            $r['identite_desps'] = $r['identite_desps'] ? json_decode($r['identite_desps'], true) : null;
+            $r['cursus_brut'] = $r['cursus_brut'] ? json_decode($r['cursus_brut'], true) : null;
             enregistrerCursusEtBilan($pdo, $r, $r, $anneeExamenDebut, $index);
             $n++;
         }
@@ -392,7 +475,8 @@ if (!function_exists('lireBilanEcole')) {
         $stmt = $pdo->prepare("
             SELECT c.id, c.nom, c.prenoms, c.matricule_dsps, c.ecole_id,
                    d.id AS cursus_id, d.introuvable, d.ecole_desps, d.classe_desps, d.annee_debut, d.ecole_conforme,
-                   d.statut, d.changement_ecole, d.motif, d.lignes_dfa, d.avertissements
+                   d.statut, d.changement_ecole, d.motif, d.lignes_dfa, d.avertissements,
+                   d.source, d.verifie_le, d.cursus_brut, d.derniere_dfa
             FROM candidats c
             LEFT JOIN desps_cursus d ON d.candidat_id = c.id
             WHERE c.annee_id = ? AND c.est_candidat_libre = 0 AND c.ecole_id = ?
@@ -409,6 +493,7 @@ if (!function_exists('lireBilanEcole')) {
             }
             $r['lignes'] = $r['lignes_dfa'] ? json_decode($r['lignes_dfa'], true) : [];
             $r['avert'] = $r['avertissements'] ? json_decode($r['avertissements'], true) : [];
+            $r['cursus'] = $r['cursus_brut'] ? json_decode($r['cursus_brut'], true) : [];
             $lignes[] = $r;
         }
         return $lignes;
@@ -499,93 +584,5 @@ if (!function_exists('ecrireFichierDfa')) {
             $sh->setCellValueExplicit([3, $ligne], $l['dfa'], $texte);
         }
         (new \PhpOffice\PhpSpreadsheet\Writer\Xls($ss))->save($cheminSortie);
-    }
-}
-
-// ------------------------------------------
-// Import des résultats DESPS (Excel / CSV)
-// ------------------------------------------
-
-if (!function_exists('importerResultatsDesps')) {
-    /**
-     * Colonnes reconnues par leur en-tête (sinon A=matricule, B=école, C=classe, D=année) :
-     * matricule | école (ou établissement) | classe (ou niveau) | année (scolaire).
-     * Une cellule "INTROUVABLE" dans la ligne marque le matricule comme inexistant sur DESPS.
-     *
-     * @return array{importes:int, introuvables:int, erreurs:string[]}
-     */
-    function importerResultatsDesps(PDO $pdo, int $anneeId, int $anneeExamenDebut, string $chemin): array
-    {
-        $res = ['importes' => 0, 'introuvables' => 0, 'erreurs' => []];
-        $rows = \PhpOffice\PhpSpreadsheet\IOFactory::load($chemin)->getActiveSheet()->toArray(null, true, false);
-
-        $col = ['matricule' => 0, 'ecole' => 1, 'classe' => 2, 'annee' => 3];
-        $debut = 0;
-        foreach ($rows as $i => $r) {
-            $trouve = [];
-            foreach ($r as $j => $cell) {
-                $t = retirerAccents(mb_strtoupper(trim((string) $cell)));
-                if ($t === '') {
-                    continue;
-                }
-                if (str_contains($t, 'MATRICULE')) $trouve['matricule'] = $j;
-                elseif (str_contains($t, 'ECOLE') || str_contains($t, 'ETABLISSEMENT')) $trouve['ecole'] = $j;
-                elseif (str_contains($t, 'CLASSE') || str_contains($t, 'NIVEAU') || $t === 'COURS') $trouve['classe'] = $j;
-                elseif (str_contains($t, 'ANNEE')) $trouve['annee'] = $j;
-            }
-            if (isset($trouve['matricule']) && count($trouve) >= 2) {
-                $col = array_merge($col, $trouve);
-                $debut = $i + 1;
-                break;
-            }
-            if ($i >= 5) {
-                break;
-            }
-        }
-
-        $stmt = $pdo->prepare("
-            SELECT id, nom, prenoms, matricule_dsps, ecole_id FROM candidats
-            WHERE annee_id = ? AND est_candidat_libre = 0 AND ecole_id IS NOT NULL
-              AND REPLACE(UPPER(TRIM(matricule_dsps)), ' ', '') = ?
-        ");
-        $index = indexEcolesDfa($pdo);
-
-        foreach (array_slice($rows, $debut, null, true) as $i => $r) {
-            $matricule = strtoupper(preg_replace('/\s+/', '', trim((string) ($r[$col['matricule']] ?? ''))));
-            if ($matricule === '') {
-                continue;
-            }
-            $ligne = $i + 1;
-            $stmt->execute([$anneeId, $matricule]);
-            $candidat = $stmt->fetch();
-            if (!$candidat) {
-                $res['erreurs'][] = "Ligne $ligne : matricule $matricule absent des candidats de cette année — ignoré.";
-                continue;
-            }
-            $ecole = trim((string) ($r[$col['ecole']] ?? ''));
-            $classeBrute = trim((string) ($r[$col['classe']] ?? ''));
-            $anneeBrute = trim((string) ($r[$col['annee']] ?? ''));
-
-            $introuvable = in_array('INTROUVABLE', array_map(fn ($c) => retirerAccents(mb_strtoupper(trim((string) $c))), $r), true) ? 1 : 0;
-            $classe = normaliserClasseDesps($classeBrute);
-            $annee = normaliserAnneeDesps($anneeBrute);
-
-            if (!$introuvable && ($classe === null || $annee === null)) {
-                $res['erreurs'][] = "Ligne $ligne ($matricule) : classe « $classeBrute » ou année « $anneeBrute » non reconnue — enregistré comme « à vérifier ».";
-            }
-            // Conserve un éventuel "école conforme" confirmé à la main si l'école DESPS n'a pas changé.
-            $ancien = $pdo->prepare("SELECT ecole_desps, ecole_conforme FROM desps_cursus WHERE candidat_id = ?");
-            $ancien->execute([$candidat['id']]);
-            $a = $ancien->fetch();
-            $conforme = ($a && strcasecmp(trim((string) $a['ecole_desps']), $ecole) === 0) ? (int) $a['ecole_conforme'] : 0;
-
-            enregistrerCursusEtBilan($pdo, $candidat, [
-                'introuvable' => $introuvable, 'ecole_desps' => $ecole !== '' ? $ecole : null,
-                'classe_desps' => $classe, 'annee_debut' => $annee, 'ecole_conforme' => $conforme,
-            ], $anneeExamenDebut, $index);
-            $res['importes']++;
-            $res['introuvables'] += $introuvable;
-        }
-        return $res;
     }
 }
