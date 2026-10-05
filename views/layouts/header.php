@@ -1558,6 +1558,24 @@ if (!function_exists('statCard')) {
 
             </li>
 
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'bilan_desps.php' ? 'active' : '' ?>"
+                    href="bilan_desps.php"
+                >
+
+                    <i class="bi bi-mortarboard"></i>
+
+                    <span>
+                        Bilan DESPS / DFA
+                    </span>
+
+                </a>
+
+            </li>
+
         </ul>
 
 

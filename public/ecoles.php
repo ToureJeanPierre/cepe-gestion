@@ -7,6 +7,7 @@ $pageTitle = 'Gestion des Écoles';
 
 require_once __DIR__ . '/../src/groupe_scolaire_helpers.php';
 require_once __DIR__ . '/../src/telephone_helpers.php';
+require_once __DIR__ . '/../src/dfa_helpers.php';
 
 // ==========================================
 // TRAITEMENT : IMPORTATION EXCEL
@@ -254,6 +255,9 @@ $ecoles = $pdo->prepare($sql);
 $ecoles->execute($params);
 $ecoles = $ecoles->fetchAll();
 
+// Nombre d'élèves à remonter par DFA, par école (bilan stocké, année consultée).
+$recapDfa = $anneeId ? recapBilanParEcole($pdo, (int) $anneeId) : [];
+
 $stats = $pdo->query("SELECT COUNT(*) as total, SUM(CASE WHEN statut='Public' THEN 1 ELSE 0 END) as publics, SUM(CASE WHEN statut='Privé' THEN 1 ELSE 0 END) as prives, SUM(CASE WHEN code_dsps IS NULL THEN 1 ELSE 0 END) as sans_code, SUM(est_centre_examen) as centres FROM ecoles")->fetch();
 
 $consolide = $pdo->query("SELECT groupe_scolaire as nom_groupe, COUNT(*) as nb_ecoles, SUM(effectif_general) as total_effectif FROM ecoles WHERE groupe_scolaire IS NOT NULL GROUP BY groupe_scolaire ORDER BY nom_groupe ASC")->fetchAll();
@@ -380,12 +384,19 @@ include '../views/layouts/header.php';
                                 <?php endif; ?>
                             </td>
                             <td class="text-center"><?= $e['est_centre_examen'] ? '✅' : '-' ?></td>
-                            <td class="text-end">
-                                <div class="dropdown">
+                            <td class="text-end text-nowrap">
+                                <?php $nbDfaEcole = (int) ($recapDfa[(int) $e['id']]['DFA'] ?? 0); ?>
+                                <?php if ($nbDfaEcole > 0): ?>
+                                    <a href="export_dfa.php?ecole_id=<?= $e['id'] ?>" class="btn btn-sm btn-warning" title="Télécharger le fichier DFA de cette école"><i class="bi bi-download"></i> DFA (<?= $nbDfaEcole ?>)</a>
+                                <?php else: ?>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Aucun élève à remonter">DFA (0)</button>
+                                <?php endif; ?>
+                                <div class="dropdown d-inline-block">
                                     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
                                         <i class="bi bi-three-dots-vertical"></i>
                                     </button>
                                     <ul class="dropdown-menu dropdown-menu-end">
+                                        <li><a class="dropdown-item" href="bilan_desps.php?ecole_id=<?= $e['id'] ?>"><i class="bi bi-mortarboard me-2"></i>Bilan DESPS / DFA</a></li>
                                         <li><a class="dropdown-item" href="candidats.php?ecole_id=<?= $e['id'] ?>"><i class="bi bi-people me-2"></i>Candidats</a></li>
                                         <li><a class="dropdown-item" href="enseignants.php?ecole_id=<?= $e['id'] ?>"><i class="bi bi-person-badge me-2"></i>Personnel</a></li>
                                         <li><a class="dropdown-item" href="?modifier=<?= $e['id'] ?>"><i class="bi bi-pencil me-2"></i>Modifier</a></li>
