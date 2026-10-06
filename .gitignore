@@ -4,3 +4,7 @@
 
 # Fichiers d'environnement local
 .env
+
+# Clé API Anthropic (secrète) et extraits de naissance reçus (données personnelles de mineurs)
+/config/anthropic.php
+/storage/

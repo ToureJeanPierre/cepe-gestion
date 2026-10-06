@@ -16,6 +16,8 @@
     "minimum-stability": "stable",
     "require": {
         "phpoffice/phpspreadsheet": "^5.9",
-        "dompdf/dompdf": "^3.1"
+        "dompdf/dompdf": "^3.1",
+        "anthropic-ai/sdk": "^0.54.0",
+        "guzzlehttp/guzzle": "^8.2"
     }
 }

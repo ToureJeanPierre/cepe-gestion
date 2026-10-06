@@ -1576,6 +1576,24 @@ if (!function_exists('statCard')) {
 
             </li>
 
+
+            <li class="nav-item">
+
+                <a
+                    class="nav-link <?= $currentPage === 'extraits.php' ? 'active' : '' ?>"
+                    href="extraits.php"
+                >
+
+                    <i class="bi bi-person-vcard"></i>
+
+                    <span>
+                        Extraits de naissance
+                    </span>
+
+                </a>
+
+            </li>
+
         </ul>
 
 
