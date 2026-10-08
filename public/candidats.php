@@ -46,6 +46,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                 $lignesDocx = extraireTableauDocx($sourceImport['tmp']);
                 $rows = mapperLignesDocxCandidats($lignesDocx, $ecoleDocx['nom'], $ecoleDocx['code_dsps']);
             } else {
+                if ($ecoleIdImportDocx) {
+                    $stmtEcoleXls = $pdo->prepare("SELECT 1 FROM ecoles WHERE id = ?");
+                    $stmtEcoleXls->execute([$ecoleIdImportDocx]);
+                    if (!$stmtEcoleXls->fetchColumn()) {
+                        throw new Exception("École introuvable.");
+                    }
+                }
                 $spreadsheet = IOFactory::load($sourceImport['tmp']);
                 $rows = $spreadsheet->getActiveSheet()->toArray();
                 array_shift($rows); // Saute en-tête
@@ -96,8 +103,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                     $ecoleId = null;
                     $estLibre = 0;
 
-                    if (strtoupper($nomEcole) === 'LIBRE' || (empty($nomEcole) && empty($codeDspsEcole))) {
+                    if (strtoupper($nomEcole) === 'LIBRE' || (empty($nomEcole) && empty($codeDspsEcole) && !$ecoleIdImportDocx)) {
                         $estLibre = 1;
+                    } elseif (empty($nomEcole) && empty($codeDspsEcole)) {
+                        // Ligne Excel sans école, alors qu'une école a été choisie pour tout le fichier.
+                        $ecoleId = $ecoleIdImportDocx;
                     } else {
                         // Le code DSPS de l'école est plus fiable qu'un nom (fautes de frappe,
                         // écoles homonymes) : on l'essaie en priorité s'il est fourni.
@@ -622,15 +632,15 @@ include '../views/layouts/header.php';
                 <div class="modal-body">
                     <p>Le système mettra à jour les élèves existants (même matricule, ou même nom/prénom/date de naissance/école) et ajoutera les nouveaux.</p>
 
-                    <div id="blocEcoleImportCandidatsDocx" class="mb-3" style="display:none;">
-                        <label class="form-label">École concernée par ce fichier Word</label>
+                    <div id="blocEcoleImportCandidatsDocx" class="mb-3">
+                        <label class="form-label">École concernée par ce fichier</label>
                         <select name="ecole_id_import_docx" class="form-select">
                             <option value="">-- Choisir l'école --</option>
                             <?php foreach ($ecoles as $e): ?>
                                 <option value="<?= $e['id'] ?>"><?= htmlspecialchars($e['nom']) ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <small class="text-muted">Un fichier Word (une école, sans colonne École dans le tableau) : indique ici de quelle école il s'agit.</small>
+                        <small class="text-muted">Choisis l'école, puis le fichier. <strong>Obligatoire pour un fichier Word</strong> (une école par fichier, sans colonne École). Pour un fichier Excel : sert aux lignes dont la colonne École est vide ; une ligne qui nomme son école (ou LIBRE) garde la sienne.</small>
                     </div>
 
                     <div id="blocColonnesExcelCandidats">
@@ -751,14 +761,13 @@ document.addEventListener('change', async function (evenement) {
     }
 });
 
-// Modal Import : le sélecteur d'école n'a de sens que pour un fichier Word
-// (une école par fichier) — un fichier Excel porte sa propre colonne École.
+// Modal Import : le sélecteur d'école est toujours visible (comme pour le personnel) ;
+// il n'est OBLIGATOIRE que pour un fichier Word (une école par fichier).
 function ajusterImportCandidats() {
     var fichier = document.getElementById('inputFichierCandidats').files[0];
     var estDocx = fichier && /\.docx$/i.test(fichier.name);
 
     var blocEcole = document.getElementById('blocEcoleImportCandidatsDocx');
-    blocEcole.style.display = estDocx ? '' : 'none';
     blocEcole.querySelector('select').required = estDocx;
 
     document.getElementById('blocColonnesExcelCandidats').style.display = estDocx ? 'none' : '';
