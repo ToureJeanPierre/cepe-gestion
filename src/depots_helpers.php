@@ -303,9 +303,9 @@ if (!function_exists('comparerDepotAvecBase')) {
             return $res;
         }
 
-        // personnel : mêmes critères que l'import (matricule / n° d'autorisation, sinon nom + prénoms)
-        $parId = $pdo->prepare("SELECT id FROM personnel WHERE matricule = ? OR numero_autorisation_enseigner = ? OR numero_autorisation_diriger = ? LIMIT 1");
-        $parNom = $pdo->prepare("SELECT id FROM personnel WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND LOWER(TRIM(prenoms)) = LOWER(TRIM(?)) AND categorie = 'enseignant' AND (? IS NULL OR ecole_id = ?) LIMIT 1");
+        // personnel : mêmes critères que l'import corrigé (trouverPersonnelExistant) : un matricule / n° d'autorisation
+        // ne compte que s'il contient un chiffre (« En cours » n'en est pas un) et que le nom est compatible.
+        $parNomSansEcole = $pdo->prepare("SELECT id FROM personnel WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND LOWER(TRIM(prenoms)) = LOWER(TRIM(?)) AND categorie = 'enseignant' LIMIT 1");
         foreach ($rows as $r) {
             $nom = trim((string) ($r[0] ?? ''));
             if ($nom === '') {
@@ -313,21 +313,20 @@ if (!function_exists('comparerDepotAvecBase')) {
             }
             $prenoms = trim((string) ($r[1] ?? ''));
             $ident = trim((string) ($r[4] ?? ''));
-            $cle = $ident !== '' ? 'M:' . mb_strtoupper($ident) : 'N:' . mb_strtoupper("$nom|$prenoms");
+            // Clé de repérage des doublons DANS le fichier : un identifiant n'est une clé que s'il est exploitable.
+            $cle = identifiantPersonnelExploitable($ident) ? 'M:' . mb_strtoupper($ident) . '|' . mb_strtoupper("$nom|$prenoms") : 'N:' . mb_strtoupper("$nom|$prenoms");
             $res['total']++;
             if (isset($vus[$cle])) {
                 $res['doublons_fichier']++;
                 continue;
             }
             $vus[$cle] = true;
-            $trouve = false;
-            if ($ident !== '') {
-                $parId->execute([$ident, $ident, $ident]);
-                $trouve = (bool) $parId->fetch();
-            }
-            if (!$trouve) {
-                $parNom->execute([$nom, $prenoms, $ecoleId, $ecoleId]);
-                $trouve = (bool) $parNom->fetch();
+            if ($ecoleId) {
+                $trouve = trouverPersonnelExistant($pdo, $nom, $prenoms, 'enseignant', $ecoleId, $ident !== '' ? $ident : null, $ident !== '' ? $ident : null, $ident !== '' ? $ident : null)['id'] !== null;
+            } else {
+                // École pas encore confirmée : on cherche le nom dans toutes les écoles.
+                $parNomSansEcole->execute([$nom, $prenoms]);
+                $trouve = (bool) $parNomSansEcole->fetch();
             }
             $trouve ? $res['deja']++ : $res['nouveaux']++;
         }
