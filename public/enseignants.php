@@ -212,29 +212,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
                         $fonction = !empty($fonctionRaw) ? $fonctionRaw : ($categorieImport === 'conseiller' ? 'Conseiller' : 'Agent Administratif');
                     }
 
-                    // Vérification Doublon : par Matricule (Public) ou N° d'autorisation (Privé) si
-                    // disponible — clés les plus fiables — sinon par Nom + Prénoms + École.
-                    $existing = null;
-                    if (!empty($matricule)) {
-                        $checkStmt = $pdo->prepare("SELECT id FROM personnel WHERE matricule = ?");
-                        $checkStmt->execute([$matricule]);
-                        $existing = $checkStmt->fetch();
-                    }
-                    if (!$existing && (!empty($numAutoEnseigner) || !empty($numAutoDiriger))) {
-                        $checkStmt = $pdo->prepare("SELECT id FROM personnel WHERE (numero_autorisation_enseigner IS NOT NULL AND numero_autorisation_enseigner = ?) OR (numero_autorisation_diriger IS NOT NULL AND numero_autorisation_diriger = ?)");
-                        $checkStmt->execute([$numAutoEnseigner ?? '', $numAutoDiriger ?? '']);
-                        $existing = $checkStmt->fetch();
-                    }
-                    if (!$existing) {
-                        // Filtre aussi sur categorie : les conseillers et administratifs
-                        // ont tous ecole_id=NULL comme les enseignants candidats libres
-                        // n'existent pas ici, donc "ecole_id <=> ?" seul peut faire
-                        // correspondre deux personnes réelles différentes qui partagent
-                        // un nom courant, sans lien entre elles — la 2ᵉ écraserait alors
-                        // en place la fiche de la 1ʳᵉ.
-                        $checkStmt = $pdo->prepare("SELECT id FROM personnel WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND LOWER(TRIM(prenoms)) = LOWER(TRIM(?)) AND categorie = ? AND (ecole_id <=> ?)");
-                        $checkStmt->execute([$nom, $prenoms, $categorieImport, $ecoleId]);
-                        $existing = $checkStmt->fetch();
+                    // Retrouver la fiche existante (voir trouverPersonnelExistant) : par matricule / n° d'autorisation
+                    // SEULEMENT s'ils sont de vrais identifiants (un chiffre au moins : « En cours » n'en est pas un)
+                    // et que le nom est compatible ; sinon par nom + prénoms + catégorie + école.
+                    $trouve = trouverPersonnelExistant($pdo, $nom, $prenoms, $categorieImport, $ecoleId, $matricule, $numAutoEnseigner, $numAutoDiriger);
+                    $existing = $trouve['id'] ? ['id' => $trouve['id']] : null;
+                    if ($trouve['avertissement']) {
+                        $erreurs[] = "Ligne $numLigne : " . $trouve['avertissement'] . " — fiche de $nom $prenoms créée séparément, à vérifier.";
                     }
 
                     if ($existing) {

@@ -279,3 +279,77 @@ function mapperLignesDocxPersonnel(array $lignesDocx): array
 
     return $rows;
 }
+
+// ==========================================
+// RETROUVER UN MEMBRE DU PERSONNEL DÉJÀ ENREGISTRÉ (import)
+// ==========================================
+
+if (!function_exists('identifiantPersonnelExploitable')) {
+    /**
+     * Un vrai matricule ou n° d'autorisation contient toujours un chiffre. « En cours »,
+     * « ENCOURS », « F », « N »... sont des mentions, pas des identifiants : s'en servir pour
+     * retrouver quelqu'un fusionnait des personnes différentes (l'une écrasait la fiche de l'autre).
+     */
+    function identifiantPersonnelExploitable(?string $v): bool
+    {
+        return $v !== null && preg_match('/\d/', $v) === 1;
+    }
+}
+
+if (!function_exists('motsNomPersonnel')) {
+    function motsNomPersonnel(?string $t): array
+    {
+        $t = retirerAccents(mb_strtoupper(trim((string) $t)));
+        $m = array_values(array_filter(explode(' ', (string) preg_replace('/[^A-Z0-9]+/', ' ', $t)), fn ($x) => $x !== ''));
+        sort($m);
+        return $m;
+    }
+}
+
+if (!function_exists('memePersonneParNom')) {
+    /** Même nom (mots, ordre et accents indifférents) ou au moins un prénom en commun. */
+    function memePersonneParNom(string $nomA, string $prenomsA, string $nomB, string $prenomsB): bool
+    {
+        if (motsNomPersonnel($nomA) === motsNomPersonnel($nomB)) {
+            return true;
+        }
+        return (bool) array_intersect(motsNomPersonnel($prenomsA), motsNomPersonnel($prenomsB));
+    }
+}
+
+if (!function_exists('trouverPersonnelExistant')) {
+    /**
+     * Cherche la fiche existante correspondant à une ligne importée : d'abord par matricule / n° d'autorisation
+     * (seulement s'ils sont de vrais identifiants ET que le nom est compatible), sinon par nom + prénoms +
+     * catégorie + école. Lecture seule.
+     *
+     * @return array{id: ?int, avertissement: ?string} avertissement : un identifiant déjà porté par une AUTRE personne
+     */
+    function trouverPersonnelExistant(PDO $pdo, string $nom, string $prenoms, string $categorie, ?int $ecoleId, ?string $matricule, ?string $numEnseigner, ?string $numDiriger): array
+    {
+        $avertissement = null;
+        $tests = [];
+        if (identifiantPersonnelExploitable($matricule)) {
+            $tests[] = ['matricule = ?', [$matricule], "matricule « $matricule »"];
+        }
+        foreach ([$numEnseigner, $numDiriger] as $num) {
+            if (identifiantPersonnelExploitable($num)) {
+                $tests[] = ['(numero_autorisation_enseigner = ? OR numero_autorisation_diriger = ?)', [$num, $num], "n° d'autorisation « $num »"];
+            }
+        }
+        foreach ($tests as [$condition, $params, $libelle]) {
+            $stmt = $pdo->prepare("SELECT id, nom, prenoms FROM personnel WHERE $condition");
+            $stmt->execute($params);
+            foreach ($stmt->fetchAll() as $r) {
+                if (memePersonneParNom($nom, $prenoms, (string) $r['nom'], (string) $r['prenoms'])) {
+                    return ['id' => (int) $r['id'], 'avertissement' => null];
+                }
+                $avertissement = "$libelle déjà porté par {$r['nom']} {$r['prenoms']} (une autre personne)";
+            }
+        }
+        $stmt = $pdo->prepare("SELECT id FROM personnel WHERE LOWER(TRIM(nom)) = LOWER(TRIM(?)) AND LOWER(TRIM(prenoms)) = LOWER(TRIM(?)) AND categorie = ? AND (ecole_id <=> ?)");
+        $stmt->execute([$nom, $prenoms, $categorie, $ecoleId]);
+        $id = $stmt->fetchColumn();
+        return ['id' => $id !== false ? (int) $id : null, 'avertissement' => $id !== false ? null : $avertissement];
+    }
+}
