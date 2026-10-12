@@ -7,6 +7,15 @@ require_once __DIR__ . '/../src/telephone_helpers.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 require_once __DIR__ . '/../src/depots_helpers.php';
 
+// Le personnel est rattaché à l'année scolaire (personnel.annee_id), au même
+// titre que les candidats : ce contrôle manquait ici alors qu'il existe déjà
+// partout ailleurs (candidats.php, affectations.php, centres.php...), ce qui
+// permettait d'importer/modifier/supprimer du personnel sur une année
+// archivée malgré le cadenas affiché dans la barre du haut.
+if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
+}
+
 
 $pageTitle = 'Gestion du Personnel';
 
@@ -89,7 +98,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
             $nomFichier = $sourceImport['nom'];
             $extension = strtolower(pathinfo($nomFichier, PATHINFO_EXTENSION));
 
-            if ($extension === 'docx') {
+            if ($extension === 'pdf') {
+                // PDF : tableau lu par PyMuPDF, valeurs reconnues par leur contenu (les colonnes d'un PDF sont
+                // instables). Les lignes douteuses sont signalées dans les avertissements d'import.
+                $avertPdf = [];
+                $rows = mapperLignesPdfPersonnel(extraireTableauPdf($sourceImport['tmp']), $avertPdf);
+            } elseif ($extension === 'docx') {
                 // Fichier Word envoyé tel quel par le directeur (modèle
                 // officiel de liste des enseignants) : lu directement, sans
                 // conversion préalable en Excel.
@@ -110,7 +124,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_personnel'])
 
             $nbAjouts = 0;
             $nbMajs = 0;
-            $erreurs = [];
+            $erreurs = $avertPdf ?? []; // lignes douteuses d'un PDF, signalées avec les erreurs d'import
 
             // Colonnes attendues (catégorie et école fixées pour tout le fichier, cf. ci-dessus) :
             // A:Nom B:Prénoms C:Sexe D:Téléphone E:Matricule (Public) / N° Autorisation (Privé)
@@ -420,7 +434,7 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>👥 Gestion du Personnel</h2>
     <div>
-        <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel ou Word)</button>
+        <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel, Word ou PDF)</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter</button>
     </div>
 </div>
@@ -565,7 +579,7 @@ include '../views/layouts/header.php';
         <form method="POST" enctype="multipart/form-data">
             <div class="modal-content">
                 <div class="modal-header bg-success text-white">
-                    <h5 class="modal-title">Importer le Personnel (Excel ou Word)</h5>
+                    <h5 class="modal-title">Importer le Personnel (Excel, Word ou PDF)</h5>
                     <a href="enseignants.php" class="btn-close btn-close-white"></a>
                 </div>
                 <div class="modal-body">
@@ -626,10 +640,10 @@ include '../views/layouts/header.php';
                     </p>
                     <p class="small text-muted">
                         <i class="bi bi-file-earmark-word"></i>
-                        Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste des enseignants" — est accepté tel quel, sans conversion en Excel (uniquement pour "UNE école").
+                        Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste des enseignants" — est accepté tel quel, sans conversion en Excel (uniquement pour "UNE école"). Le PDF (fichier Word enregistré en PDF) est lu de la même façon : les valeurs sont reconnues par leur contenu, et toute ligne douteuse est signalée après l'import.
                         La colonne Sexe (ajoutée après Prénoms) y est lue directement ; Disponibilité, absente du modèle Word, prend sa valeur par défaut (En activité) et reste modifiable ensuite au cas par cas.
                     </p>
-                    <input type="file" name="fichier_personnel" class="form-control" accept=".xlsx,.xls,.docx" required>
+                    <input type="file" name="fichier_personnel" class="form-control" accept=".xlsx,.xls,.docx,.pdf" required>
                 </div>
                 <div class="modal-footer">
                     <a href="enseignants.php" class="btn btn-secondary">Annuler</a>

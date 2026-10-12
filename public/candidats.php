@@ -27,14 +27,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
             $extensionCandidats = strtolower(pathinfo($nomFichierCandidats, PATHINFO_EXTENSION));
             $ecoleIdImportDocx = !empty($_POST['ecole_id_import_docx']) ? (int) $_POST['ecole_id_import_docx'] : null;
 
-            if ($extensionCandidats === 'docx') {
+            if (in_array($extensionCandidats, ['docx', 'pdf'], true)) {
                 // Fichier Word envoyé tel quel par le directeur (modèle officiel
                 // "Liste nominative des candidats") : lu directement, sans
                 // conversion préalable en Excel — un fichier = une école,
                 // choisie dans le formulaire d'import (le fichier ne porte pas
                 // cette information, à la différence de l'import Excel).
                 if (!$ecoleIdImportDocx) {
-                    throw new Exception("Choisissez l'école concernée avant d'importer un fichier Word.");
+                    throw new Exception("Choisissez l'école concernée avant d'importer un fichier Word ou PDF.");
                 }
                 $stmtEcoleDocx = $pdo->prepare("SELECT nom, code_dsps FROM ecoles WHERE id = ?");
                 $stmtEcoleDocx->execute([$ecoleIdImportDocx]);
@@ -43,8 +43,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                     throw new Exception("École introuvable.");
                 }
 
-                $lignesDocx = extraireTableauDocx($sourceImport['tmp']);
-                $rows = mapperLignesDocxCandidats($lignesDocx, $ecoleDocx['nom'], $ecoleDocx['code_dsps']);
+                if ($extensionCandidats === 'pdf') {
+                    // PDF : tableau lu par PyMuPDF, valeurs reconnues par leur contenu (les colonnes d'un PDF sont
+                    // instables). Les lignes douteuses sont signalées dans les avertissements d'import.
+                    $avertPdf = [];
+                    $rows = mapperLignesPdfCandidats(extraireTableauPdf($sourceImport['tmp']), $ecoleDocx['nom'], $ecoleDocx['code_dsps'], $avertPdf);
+                } else {
+                    $lignesDocx = extraireTableauDocx($sourceImport['tmp']);
+                    $rows = mapperLignesDocxCandidats($lignesDocx, $ecoleDocx['nom'], $ecoleDocx['code_dsps']);
+                }
             } else {
                 if ($ecoleIdImportDocx) {
                     $stmtEcoleXls = $pdo->prepare("SELECT 1 FROM ecoles WHERE id = ?");
@@ -58,7 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_candidats'])
                 array_shift($rows); // Saute en-tête
             }
 
-            $nbAjouts = 0; $nbMajs = 0; $nbEcolesRenommees = 0; $erreurs = [];
+            $nbAjouts = 0; $nbMajs = 0; $nbEcolesRenommees = 0; $erreurs = $avertPdf ?? [];
 
             // Cache en mémoire des écoles déjà recherchées (par code DSPS et par nom) :
             // sur un import de plusieurs milliers de candidats, des centaines de lignes
@@ -380,7 +387,7 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>🎓 Candidats CEPE</h2>
     <div>
-        <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel ou Word)</button>
+        <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel, Word ou PDF)</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter Manuellement</button>
     </div>
 </div>
@@ -640,7 +647,7 @@ include '../views/layouts/header.php';
                                 <option value="<?= $e['id'] ?>"><?= htmlspecialchars($e['nom']) ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <small class="text-muted">Choisis l'école, puis le fichier. <strong>Obligatoire pour un fichier Word</strong> (une école par fichier, sans colonne École). Pour un fichier Excel : sert aux lignes dont la colonne École est vide ; une ligne qui nomme son école (ou LIBRE) garde la sienne.</small>
+                        <small class="text-muted">Choisis l'école, puis le fichier. <strong>Obligatoire pour un fichier Word ou PDF</strong> (une école par fichier, sans colonne École). Pour un fichier Excel : sert aux lignes dont la colonne École est vide ; une ligne qui nomme son école (ou LIBRE) garde la sienne.</small>
                     </div>
 
                     <div id="blocColonnesExcelCandidats">
@@ -658,7 +665,7 @@ include '../views/layouts/header.php';
                         <i class="bi bi-file-earmark-word"></i>
                         Le fichier Word (.docx) rempli par le directeur — modèle officiel "Liste nominative des candidats" — est accepté tel quel, sans conversion en Excel. Statut Demande, absent du modèle Word, est déduit automatiquement de la présence du matricule.
                     </p>
-                    <input type="file" name="fichier_candidats" id="inputFichierCandidats" class="form-control" accept=".xlsx,.xls,.docx" required onchange="ajusterImportCandidats()">
+                    <input type="file" name="fichier_candidats" id="inputFichierCandidats" class="form-control" accept=".xlsx,.xls,.docx,.pdf" required onchange="ajusterImportCandidats()">
                 </div>
                 <div class="modal-footer"><button type="submit" name="importer_candidats" class="btn btn-success">Lancer Import</button></div>
             </div>
@@ -762,10 +769,10 @@ document.addEventListener('change', async function (evenement) {
 });
 
 // Modal Import : le sélecteur d'école est toujours visible (comme pour le personnel) ;
-// il n'est OBLIGATOIRE que pour un fichier Word (une école par fichier).
+// il n'est OBLIGATOIRE que pour un fichier Word ou PDF (une école par fichier).
 function ajusterImportCandidats() {
     var fichier = document.getElementById('inputFichierCandidats').files[0];
-    var estDocx = fichier && /\.docx$/i.test(fichier.name);
+    var estDocx = fichier && /\.(docx|pdf)$/i.test(fichier.name);
 
     var blocEcole = document.getElementById('blocEcoleImportCandidatsDocx');
     blocEcole.querySelector('select').required = estDocx;

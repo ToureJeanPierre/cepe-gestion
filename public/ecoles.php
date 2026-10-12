@@ -8,6 +8,7 @@ $pageTitle = 'Gestion des Écoles';
 require_once __DIR__ . '/../src/groupe_scolaire_helpers.php';
 require_once __DIR__ . '/../src/telephone_helpers.php';
 require_once __DIR__ . '/../src/dfa_helpers.php';
+require_once __DIR__ . '/../src/pdf_helpers.php';
 
 // ==========================================
 // TRAITEMENT : IMPORTATION EXCEL
@@ -15,8 +16,13 @@ require_once __DIR__ . '/../src/dfa_helpers.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_ecoles'])) {
     if (isset($_FILES['fichier_ecoles']) && $_FILES['fichier_ecoles']['error'] === 0) {
         try {
-            $spreadsheet = IOFactory::load($_FILES['fichier_ecoles']['tmp_name']);
-            $rows = $spreadsheet->getActiveSheet()->toArray();
+            if (strtolower(pathinfo($_FILES['fichier_ecoles']['name'], PATHINFO_EXTENSION)) === 'pdf') {
+                // PDF : accepté seulement s'il reproduit exactement le modèle (10 colonnes, en-tête reconnu).
+                $rows = lignesPdfModeleStrict($_FILES['fichier_ecoles']['tmp_name'], 10, ['NOM', 'STATUT', 'CODE']);
+            } else {
+                $spreadsheet = IOFactory::load($_FILES['fichier_ecoles']['tmp_name']);
+                $rows = $spreadsheet->getActiveSheet()->toArray();
+            }
             array_shift($rows); // Sauter en-tête
 
             $nbAjouts = 0; $nbMajs = 0; $erreurs = [];
@@ -460,7 +466,7 @@ include '../views/layouts/header.php';
                         <li>Groupe Scolaire (laisser vide pour détection auto)</li>
                         <li>Directeur</li><li>Téléphone</li><li>Effectif Global</li><li>Centre Examen (O/N)</li>
                     </ol>
-                    <input type="file" name="fichier_ecoles" class="form-control" accept=".xlsx,.xls" required>
+                    <input type="file" name="fichier_ecoles" class="form-control" accept=".xlsx,.xls,.pdf" required>
                 </div>
                 <div class="modal-footer"><button type="submit" name="importer_ecoles" class="btn btn-success">Lancer Import</button></div>
             </div>

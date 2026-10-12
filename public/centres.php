@@ -510,30 +510,39 @@ if (
             if (
                 !in_array(
                     $extension,
-                    ['xlsx', 'xls'],
+                    ['xlsx', 'xls', 'pdf'],
                     true
                 )
             ) {
 
                 throw new Exception(
-                    "Le fichier doit être au format Excel .xlsx ou .xls."
+                    "Le fichier doit être au format Excel (.xlsx, .xls) ou PDF."
                 );
             }
 
 
-            $spreadsheet = IOFactory::load(
-                $_FILES['fichier']['tmp_name']
-            );
-
-
-            $rows = $spreadsheet
-                ->getActiveSheet()
-                ->toArray(
-                    null,
-                    true,
-                    true,
-                    true
+            if ($extension === 'pdf') {
+                // PDF : accepté seulement s'il reproduit exactement le modèle (2 colonnes : École, Centre).
+                require_once __DIR__ . '/../src/pdf_helpers.php';
+                $rows = array_map(
+                    fn ($l) => ['A' => $l[0], 'B' => $l[1]],
+                    lignesPdfModeleStrict($_FILES['fichier']['tmp_name'], 2, ['ECOLE', 'CENTRE'])
                 );
+            } else {
+                $spreadsheet = IOFactory::load(
+                    $_FILES['fichier']['tmp_name']
+                );
+
+
+                $rows = $spreadsheet
+                    ->getActiveSheet()
+                    ->toArray(
+                        null,
+                        true,
+                        true,
+                        true
+                    );
+            }
 
 
             if (count($rows) <= 1) {

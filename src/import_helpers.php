@@ -65,15 +65,6 @@ function mapperLignesDocxCandidats(array $lignesDocx, string $nomEcole, ?string 
 }
 
 
-// Le personnel est rattaché à l'année scolaire (personnel.annee_id), au même
-// titre que les candidats : ce contrôle manquait ici alors qu'il existe déjà
-// partout ailleurs (candidats.php, affectations.php, centres.php...), ce qui
-// permettait d'importer/modifier/supprimer du personnel sur une année
-// archivée malgré le cadenas affiché dans la barre du haut.
-if ($anneeLectureSeule && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    die("Cette année scolaire est archivée (lecture seule) : aucune modification n'est autorisée.");
-}
-
 // ==========================================
 // IMPORT DIRECT DES FICHIERS WORD (.docx) ENVOYÉS PAR LES DIRECTEURS
 // ==========================================

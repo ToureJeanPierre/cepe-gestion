@@ -10,6 +10,7 @@
 // le ré-importer) — et à l'inverse quelles écoles n'ont rien envoyé.
 
 require_once __DIR__ . '/import_helpers.php';
+require_once __DIR__ . '/pdf_helpers.php';
 
 if (!function_exists('reglageLire')) {
     function reglageLire(PDO $pdo, string $cle, ?string $defaut = null): ?string
@@ -57,7 +58,7 @@ if (!function_exists('resoudreFichierDepot')) {
         if ($chemin === false || !is_file($chemin) || !str_starts_with($chemin, $racine . DIRECTORY_SEPARATOR)) {
             return null;
         }
-        if (!in_array(strtolower(pathinfo($chemin, PATHINFO_EXTENSION)), ['docx', 'xlsx', 'xls'], true)) {
+        if (!in_array(strtolower(pathinfo($chemin, PATHINFO_EXTENSION)), ['docx', 'pdf', 'xlsx', 'xls'], true)) {
             return null;
         }
         return ['chemin' => $chemin, 'nom' => basename($chemin)];
@@ -157,6 +158,39 @@ if (!function_exists('lireDepotWord')) {
                 $res['rows'] = mapperLignesDocxCandidats($lignes, '', null);
             } elseif ($res['type'] === 'personnel') {
                 $res['rows'] = mapperLignesDocxPersonnel($lignes);
+            }
+            $res['ok'] = true;
+        } catch (Throwable $e) {
+            $res['erreur'] = "Lecture impossible : " . $e->getMessage();
+        }
+        return $res;
+    }
+}
+
+if (!function_exists('lireDepotPdf')) {
+    /**
+     * Même contrat que lireDepotWord, pour une liste envoyée en PDF.
+     *
+     * @return array{ok: bool, erreur: ?string, type: ?string, ecole_texte: ?string, contact: ?string, lignes: array, rows: array}
+     */
+    function lireDepotPdf(string $chemin): array
+    {
+        $res = ['ok' => false, 'erreur' => null, 'type' => null, 'ecole_texte' => null, 'contact' => null, 'lignes' => [], 'rows' => []];
+        try {
+            $pdf = extrairePdf($chemin);
+            if (!$pdf['ok']) {
+                $res['erreur'] = $pdf['erreur'];
+                return $res;
+            }
+            $lignes = lignesDeTableauxPdf($pdf);
+            $res['lignes'] = $lignes;
+            $res['ecole_texte'] = pdfTexteEcole($pdf['texte']);
+            $res['type'] = typeListePdf($lignes, $pdf['texte']);
+            $avert = [];
+            if ($res['type'] === 'candidats') {
+                $res['rows'] = mapperLignesPdfCandidats($lignes, '', null, $avert);
+            } elseif ($res['type'] === 'personnel') {
+                $res['rows'] = mapperLignesPdfPersonnel($lignes, $avert);
             }
             $res['ok'] = true;
         } catch (Throwable $e) {
@@ -361,7 +395,7 @@ if (!function_exists('listerFichiersDepot')) {
             }
             $nom = $f->getFilename();
             $ext = strtolower($f->getExtension());
-            if (str_starts_with($nom, '~$') || !in_array($ext, ['docx', 'xlsx', 'xls'], true)) {
+            if (str_starts_with($nom, '~$') || !in_array($ext, ['docx', 'pdf', 'xlsx', 'xls'], true)) {
                 continue;
             }
             $relatif = str_replace('\\', '/', substr($f->getPathname(), strlen($racine) + 1));
@@ -396,8 +430,8 @@ if (!function_exists('analyserDossierDepots')) {
                 'ecoles_possibles' => [], 'total' => 0, 'deja' => 0, 'nouveaux' => 0, 'doublons_fichier' => 0,
                 'erreur' => null, 'meme_fichier_que' => null];
 
-            if ($f['ext'] === 'docx') {
-                $lu = lireDepotWord($chemin);
+            if (in_array($f['ext'], ['docx', 'pdf'], true)) {
+                $lu = $f['ext'] === 'pdf' ? lireDepotPdf($chemin) : lireDepotWord($chemin);
                 $f['type'] = $lu['type'];
                 $f['ecole_texte'] = $lu['ecole_texte'];
                 if (!$lu['ok']) {
@@ -487,6 +521,8 @@ if (!function_exists('analyserDossierDepots')) {
         foreach ($fichiers as $f) {
             if ($f['ext'] === 'docx') {
                 $resume['word']++;
+            } elseif ($f['ext'] === 'pdf') {
+                $resume['pdf'] = ($resume['pdf'] ?? 0) + 1;
             }
             $resume[$f['statut']] = ($resume[$f['statut']] ?? 0) + 1;
             if (in_array($f['statut'], ['nouveau', 'partiel', 'deja'], true) && !$f['ecole_sure']) {

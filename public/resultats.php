@@ -122,8 +122,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enregistrer_notes']))
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['importer_notes'])) {
     if (isset($_FILES['fichier_notes']) && $_FILES['fichier_notes']['error'] === 0) {
         try {
-            $spreadsheet = IOFactory::load($_FILES['fichier_notes']['tmp_name']);
-            $rows = $spreadsheet->getActiveSheet()->toArray();
+            if (strtolower(pathinfo($_FILES['fichier_notes']['name'], PATHINFO_EXTENSION)) === 'pdf') {
+                // PDF : accepté seulement s'il reproduit exactement le modèle (Matricule, Nom, Prénoms, une colonne par
+                // matière, Présent) : une note rangée dans la mauvaise matière serait une erreur grave.
+                require_once __DIR__ . '/../src/pdf_helpers.php';
+                $rows = lignesPdfModeleStrict($_FILES['fichier_notes']['tmp_name'], 3 + count($listeMatieres) + 1, ['MATRICULE', 'NOM', 'PRENOM']);
+            } else {
+                $spreadsheet = IOFactory::load($_FILES['fichier_notes']['tmp_name']);
+                $rows = $spreadsheet->getActiveSheet()->toArray();
+            }
             array_shift($rows); // Saute l'en-tête
 
             $nbMajs = 0;
@@ -482,14 +489,14 @@ include '../views/layouts/header.php';
     <div class="modal-dialog">
         <form method="POST" enctype="multipart/form-data" class="modal-content">
             <input type="hidden" name="examen_id" value="<?= $examenId ?>">
-            <div class="modal-header"><h5 class="modal-title">Importer les notes (Excel)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-header"><h5 class="modal-title">Importer les notes (Excel ou PDF)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <p class="small text-muted">
                     Colonnes attendues, dans cet ordre : Matricule DSPS (ou vide), Nom, Prénoms,
                     <?php foreach ($listeMatieres as $matiere): ?><?= htmlspecialchars($matiere) ?> (/<?= $matieres[$matiere] ?>), <?php endforeach; ?>
                     Présent (O/N).
                 </p>
-                <input type="file" name="fichier_notes" class="form-control" accept=".xlsx,.xls,.csv" required>
+                <input type="file" name="fichier_notes" class="form-control" accept=".xlsx,.xls,.csv,.pdf" required>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>

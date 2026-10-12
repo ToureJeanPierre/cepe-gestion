@@ -70,6 +70,31 @@ if (!function_exists('extraireTableauDocx')) {
             $lignes[] = $cellules;
         }
 
+        // Une liste longue est souvent coupée en PLUSIEURS tableaux Word (un par page, ou continuation sans en-tête) :
+        // ne lire que le plus grand faisait disparaître en silence les autres lignes (ex. 38 candidats lus sur 67).
+        // On ajoute donc les lignes de DONNÉES (numéro d'ordre + nom) des autres tableaux de premier niveau, jamais
+        // leurs en-têtes ni leurs cadres de mise en forme.
+        if ($xpath->query('ancestor::w:tbl', $tableau)->length === 0) {
+            foreach ($xpath->query('//w:tbl[not(ancestor::w:tbl)]') as $autre) {
+                if ($autre->isSameNode($tableau)) {
+                    continue;
+                }
+                foreach ($xpath->query('./w:tr', $autre) as $tr) {
+                    $cellules = [];
+                    foreach ($xpath->query('./w:tc', $tr) as $tc) {
+                        $morceaux = [];
+                        foreach ($xpath->query('.//w:t', $tc) as $t) {
+                            $morceaux[] = $t->textContent;
+                        }
+                        $cellules[] = nettoyerTexteCelluleDocx(implode('', $morceaux));
+                    }
+                    if (count($cellules) >= 2 && preg_match('/^\d{1,4}$/', preg_replace('/\s+/u', '', $cellules[0])) === 1 && $cellules[1] !== '') {
+                        $lignes[] = $cellules;
+                    }
+                }
+            }
+        }
+
         return $lignes;
     }
 }
