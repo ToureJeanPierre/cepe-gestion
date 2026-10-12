@@ -161,5 +161,33 @@ if ($enseignants) {
 @unlink($pdfOk);
 @unlink($pdfNotes);
 
+echo "\n== D. Modèle sans numéro de ligne et avec « NOM & PRENOMS » dans une seule colonne (cas réel : LISTE DES ENSEIGNANTS PUBLIC-1)\n";
+$sansNumero = [
+    ['MINISTERE DE L’EDUCATION NATIONALE ETABLISSEMENT : EPP TEST', 'LISTE DES ENSEIGNANTS', 'REPUBLIQUE DE COTE D’IVOIRE'],
+    ['ETABLISSEMENT : EPP TEST', '', ''],
+    ['', '', ''],
+    ['N°', 'NOM & PRENOMS', 'MATRICULE', 'CORPS & GRADE', 'FONCTION', 'COURS TENU', 'CONTACT', 'SURVEILLANCE', 'CORRECTION', 'SECRETARIAT'],
+    ['', '', '', '', '', '', '', '1er EB', '2e EB', '6e'],
+    ['', 'Mme ONAMON Née ANGORA ADJO ROSE', '801099 V', 'IA C3', 'ADJOINTE', 'CP1', '07 48 33 66 16', '', '', ''],
+    ['', 'DOSSO MESSEVE', '272932 Y', 'IO B3', 'DIRECTEUR', 'CE2', '07 08 29 40 34', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', ''],
+    ['YOPOUGON, le', 'Le Directeur d’école (nom, prénoms, cachet et signature)', '', '', '', '', '', '', '', ''],
+];
+$av = [];
+$s = mapperLignesPdfPersonnel($sansNumero, $av);
+$verif('2 enseignants lus (en-têtes, sous-titres, pied de page et ligne vide ignorés)', count($s), 2);
+$verif('identifiant, classe, fonction, téléphone', [$s[0][4], $s[0][5], $s[0][7], $s[0][3]], ['801099 V', 'CP1', 'ADJOINTE', '07 48 33 66 16']);
+$verif('emploi déduit du corps (IA C3 -> IA, IO B3 -> IO)', [$s[0][6], $s[1][6]], ['IA', 'IO']);
+$verif('le directeur est reconnu', $s[1][7], 'DIRECTEUR');
+$verif('type de liste reconnu malgré le petit tableau « ministère » en tête', typeListePdf($sansNumero, ''), 'personnel');
+$candSans = [
+    ['N°', 'NOM', 'PRENOMS', 'SEXE', 'DATE DE NAI.', 'LIEU', 'MATRICULE'],
+    ['', 'AMONOUA', 'KODJO AXEL', 'M', '21/03/2017', 'YOPOUGON', '27721501Y'],
+    ['', 'ASSOUKROU', 'LOGON MARIE', 'F', '13/10/2017', 'YOPOUGON', '27742329M'],
+    ['', 'CAMARA', 'AMADOU', 'M', '', '', ''],
+];
+$c = mapperLignesPdfCandidats($candSans, 'EPV TEST', null);
+$verif('candidats sans numéro de ligne : 3 lus, en-tête ignoré', [count($c), $c[0][0], $c[0][6], $c[2][0]], [3, 'AMONOUA', '27721501Y', 'CAMARA']);
+
 echo "\n" . ($echecs === 0 ? "TOUS LES TESTS PASSENT\n" : "$echecs ECHEC(S)\n");
 exit($echecs === 0 ? 0 : 1);

@@ -257,11 +257,72 @@ if (!function_exists('pdfEstNationalite')) {
         return preg_match('/^(IV|CI|IVOIRIEN(NE)?|BURKINAB\w*|MALIEN(NE)?|GUINEEN(NE)?|NIGERIEN(NE)?|NIGERIAN(E)?|TOGOLAIS(E)?|BENINOIS(E)?|GHANEEN(NE)?|LIBERIEN(NE)?|SENEGALAIS(E)?|CAMEROUNAIS(E)?|FRANCAIS(E)?|LIBANAIS(E)?|MAURITANIEN(NE)?|ETRANGER(E)?|AUTRE)$/', $t) === 1;
     }
 }
+if (!function_exists('pdfLignesDonnees')) {
+    /**
+     * Les lignes de données d'une liste, chacune sous la forme « cellules non vides, N° en tête ».
+     *  - Liste numérotée (la plupart des lignes commencent par un numéro d'ordre) : on garde les lignes « numéro + nom ».
+     *  - Liste SANS numéro dans le PDF (numérotation automatique de Word, qui ne s'imprime pas) : on garde les lignes dont
+     *    au moins une valeur est reconnaissable (fonction, classe, téléphone ; ou sexe, date, matricule pour les
+     *    candidats), en écartant en-têtes, sous-titres (1er EB, 2e EB...) et pieds de page (signature, cachet).
+     *
+     * @return array<int, string[]> index d'origine de la ligne => cellules
+     */
+    function pdfLignesDonnees(array $lignes, string $type): array
+    {
+        $compactes = [];
+        foreach ($lignes as $i => $l) {
+            $compactes[$i] = pdfCompacter($l);
+        }
+        $total = 0;
+        $numerotees = 0;
+        foreach ($compactes as $c) {
+            if (count($c) >= 3) {
+                $total++;
+                if (preg_match('/^\d{1,4}$/', $c[0])) {
+                    $numerotees++;
+                }
+            }
+        }
+        $numerote = $total > 0 && $numerotees >= 0.5 * $total;
+
+        $sortie = [];
+        foreach ($compactes as $i => $c) {
+            if ($numerote) {
+                if (pdfLigneDonnees($c)) {
+                    $sortie[$i] = $c;
+                }
+                continue;
+            }
+            if (count($c) < 3 || preg_match('/^(1er|1ère|2e|3e|6e)\b/iu', $c[0])) {
+                continue;
+            }
+            $texte = retirerAccents(mb_strtoupper(implode(' ', $c)));
+            if (str_contains($texte, 'NOM') && (str_contains($texte, 'PRENOM') || str_contains($texte, 'MATRICULE') || str_contains($texte, 'FONCTION'))) {
+                continue; // ligne d'en-tête
+            }
+            $reconnue = false;
+            foreach ($c as $v) {
+                $ok = $type === 'personnel'
+                    ? (pdfEstFonction($v) || pdfEstClasse($v) || pdfEstTelephone($v))
+                    : (pdfEstSexe($v) || pdfEstDate($v) || pdfEstMatricule($v));
+                if ($ok) {
+                    $reconnue = true;
+                    break;
+                }
+            }
+            if ($reconnue) {
+                $sortie[$i] = array_merge(['0'], $c);
+            }
+        }
+        return $sortie;
+    }
+}
+
 if (!function_exists('typeListePdf')) {
     /** 'personnel', 'candidats' ou null, d'après les en-têtes et le titre. */
     function typeListePdf(array $lignes, string $texte): ?string
     {
-        $entete = retirerAccents(mb_strtoupper(implode(' | ', array_merge($lignes[0] ?? [], $lignes[1] ?? []))));
+        $entete = retirerAccents(mb_strtoupper(implode(' | ', array_merge([], ...array_slice($lignes, 0, 12)))));
         $titre = retirerAccents(mb_strtoupper($texte));
         if (str_contains($entete, 'FONCTION') || str_contains($entete, 'CORPS')) {
             return 'personnel';
@@ -289,11 +350,7 @@ if (!function_exists('mapperLignesPdfCandidats')) {
     function mapperLignesPdfCandidats(array $lignes, string $nomEcole, ?string $codeDsps, array &$avertissements = []): array
     {
         $rows = [];
-        foreach ($lignes as $i => $l) {
-            $c = pdfCompacter($l);
-            if (!pdfLigneDonnees($c)) {
-                continue;
-            }
+        foreach (pdfLignesDonnees($lignes, 'candidats') as $i => $c) {
             $nom = $c[1];
             $reste = array_slice($c, 2);
             // Prénoms : la cellule suivante, sauf si elle est déjà un sexe / une date / un matricule (prénoms absents).
@@ -344,15 +401,11 @@ if (!function_exists('mapperLignesPdfPersonnel')) {
      */
     function mapperLignesPdfPersonnel(array $lignes, array &$avertissements = []): array
     {
-        $texteEntete = retirerAccents(mb_strtoupper(implode(' | ', array_merge($lignes[0] ?? [], $lignes[1] ?? []))));
+        $texteEntete = retirerAccents(mb_strtoupper(implode(' | ', array_merge([], ...array_slice($lignes, 0, 12)))));
         $combine = str_contains($texteEntete, 'NOM & PRENOM') || str_contains($texteEntete, 'NOM ET PRENOM');
 
         $rows = [];
-        foreach ($lignes as $i => $l) {
-            $c = pdfCompacter($l);
-            if (!pdfLigneDonnees($c)) {
-                continue;
-            }
+        foreach (pdfLignesDonnees($lignes, 'personnel') as $i => $c) {
             $sexeBrut = '';
             if ($combine) {
                 [$nom, $prenoms, $sexeBrut] = separerNomPrenoms($c[1]);
