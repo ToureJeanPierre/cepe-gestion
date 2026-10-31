@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once '../config/database.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 $pageTitle = 'Plans de salle';
 
@@ -1416,6 +1417,54 @@ if ($examenSelectionneId > 0) {
     $centreEffectifIdsAvecEmargement = array_flip($stmtEmargementExistant->fetchAll(PDO::FETCH_COLUMN));
 }
 
+// ==========================================
+// EXPORT (Excel / PDF) : les plans de salle de l'examen sélectionné
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $libelleExamen = '';
+    foreach ($examens as $ex) {
+        if ((int) $ex['id'] === $examenSelectionneId) { $libelleExamen = $ex['libelle']; }
+    }
+    $filtresTexte = resumeFiltres(['Examen' => $libelleExamen]) . ' — année ' . $ANNEE_SCOLAIRE;
+    if (exportType() === 'candidats_salles') {
+        $st = $pdo->prepare("
+            SELECT ecentre.nom AS centre, ps.numero_salle, psc.numero_ordre, ca.nom, ca.prenoms, ca.matricule_dsps, ecand.nom AS ecole
+            FROM plan_salle_candidats psc
+            INNER JOIN plan_salles ps ON ps.id = psc.plan_salle_id
+            INNER JOIN centre_effectifs ce ON ce.id = ps.centre_effectif_id
+            INNER JOIN centres c ON c.id = ce.centre_id
+            INNER JOIN ecoles ecentre ON ecentre.id = c.ecole_id
+            INNER JOIN candidats ca ON ca.id = psc.candidat_id
+            LEFT JOIN ecoles ecand ON ecand.id = ca.ecole_id
+            WHERE ce.examen_id = ? AND c.annee_id = ?
+            ORDER BY ecentre.nom, ps.numero_salle, psc.numero_ordre
+        ");
+        $st->execute([$examenSelectionneId, $anneeId]);
+        $lignes = [];
+        foreach ($st->fetchAll() as $r) {
+            $lignes[] = [$r['centre'], (int) $r['numero_salle'], (int) $r['numero_ordre'], $r['nom'], $r['prenoms'], $r['matricule_dsps'] ?? '', $r['ecole'] ?? 'Candidat libre'];
+        }
+        exporterVue('Candidats par salle', ['Centre', 'Salle n°', 'N° d\'ordre', 'Nom', 'Prénoms', 'Matricule DSPS', 'École'], $lignes, $formatExport,
+            ['sous_titre' => $filtresTexte, 'nom_fichier' => 'candidats_par_salle']);
+    }
+    $st = $pdo->prepare("
+        SELECT ecentre.nom AS centre, ps.numero_salle, ps.effectif_calcule, COALESCE(ps.effectif_retenu, ps.effectif_calcule) AS effectif, ps.est_manuel, ps.commentaire
+        FROM plan_salles ps
+        INNER JOIN centre_effectifs ce ON ce.id = ps.centre_effectif_id
+        INNER JOIN centres c ON c.id = ce.centre_id
+        INNER JOIN ecoles ecentre ON ecentre.id = c.ecole_id
+        WHERE ce.examen_id = ? AND c.annee_id = ?
+        ORDER BY ecentre.nom, ps.numero_salle
+    ");
+    $st->execute([$examenSelectionneId, $anneeId]);
+    $lignes = [];
+    foreach ($st->fetchAll() as $r) {
+        $lignes[] = [$r['centre'], (int) $r['numero_salle'], (int) $r['effectif_calcule'], (int) $r['effectif'], $r['est_manuel'] ? 'Manuel' : 'Automatique', $r['commentaire'] ?? ''];
+    }
+    exporterVue('Plans de salle : effectif par salle', ['Centre', 'Salle n°', 'Effectif calculé', 'Effectif retenu', 'Mode', 'Commentaire'], $lignes, $formatExport,
+        ['sous_titre' => $filtresTexte, 'totaux' => [2, 3], 'nom_fichier' => 'plans_salles']);
+}
+
 include '../views/layouts/header.php';
 
 ?>
@@ -1445,6 +1494,10 @@ include '../views/layouts/header.php';
             </div>
 
         </div>
+
+        <div><?= boutonExportVue([
+            ['type' => 'candidats_salles', 'titre' => 'Candidats par salle', 'aide' => 'Qui compose dans quelle salle, avec le numéro d\'ordre'],
+        ]) ?></div>
 
     </div>
 

@@ -7,6 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/matieres_config.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -312,6 +313,69 @@ $tauxReussite = $notesCompletes > 0 ? round(($admis / $notesCompletes) * 100, 1)
 // Liste des écoles pour le filtre
 $ecoles = $pdo->query("SELECT id, nom FROM ecoles ORDER BY nom ASC")->fetchAll();
 
+// ==========================================
+// EXPORT (Excel / PDF) : exactement la liste affichée, avec ses filtres
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $nomEcoleExport = '';
+    foreach ($ecoles as $e) {
+        if ((string) $e['id'] === (string) $filtreEcole) { $nomEcoleExport = $e['nom']; }
+    }
+    $filtresTexte = resumeFiltres(['Examen' => $examenActif['libelle'], 'École' => $nomEcoleExport, 'Recherche' => $filtreRecherche]);
+
+    // Une ligne par candidat : notes par matière, moyenne /20 et résultat (mêmes règles que l'écran).
+    $resultats = [];
+    foreach ($candidats as $c) {
+        $notesCandidat = $notesExistantes[$c['id']] ?? [];
+        $absent = false;
+        $notesParMatiere = [];
+        foreach ($listeMatieres as $matiere) {
+            $ligneNote = $notesCandidat[$matiere] ?? null;
+            if ($ligneNote && (int) $ligneNote['present'] === 0) { $absent = true; }
+            $notesParMatiere[$matiere] = $ligneNote['note'] ?? null;
+        }
+        $dispenseEPS = (bool) ($notesCandidat['EPS']['dispense'] ?? false);
+        $moyenne = $absent ? null : calculerMoyenne20($notesParMatiere, $examenActif['code'], $dispenseEPS);
+        $statut = $absent ? 'Absent' : ($moyenne === null ? 'Incomplet' : ($moyenne >= SEUIL_ADMISSION_CEPE ? 'Admis' : 'Refusé'));
+        $resultats[] = ['ecole' => $c['nom_ecole'], 'nom' => $c['nom'], 'prenoms' => $c['prenoms'], 'matricule' => $c['matricule_dsps'] ?? '',
+            'notes' => $notesParMatiere, 'moyenne' => $moyenne, 'statut' => $statut];
+    }
+
+    if (exportType() === 'bilan_ecoles') {
+        $groupes = [];
+        foreach ($resultats as $r) {
+            $g = &$groupes[$r['ecole']];
+            $g = $g ?? ['inscrits' => 0, 'absents' => 0, 'incomplets' => 0, 'admis' => 0, 'refuses' => 0];
+            $g['inscrits']++;
+            match ($r['statut']) { 'Absent' => $g['absents']++, 'Incomplet' => $g['incomplets']++, 'Admis' => $g['admis']++, default => $g['refuses']++ };
+            unset($g);
+        }
+        ksort($groupes);
+        $lignes = [];
+        foreach ($groupes as $nom => $g) {
+            $classes = $g['admis'] + $g['refuses'];
+            $lignes[] = [$nom, $g['inscrits'], $g['absents'], $g['incomplets'], $g['admis'], $g['refuses'], $classes > 0 ? round($g['admis'] * 100 / $classes, 1) : ''];
+        }
+        $tot = ['inscrits' => 0, 'admis' => 0, 'refuses' => 0];
+        foreach ($groupes as $g) { $tot['inscrits'] += $g['inscrits']; $tot['admis'] += $g['admis']; $tot['refuses'] += $g['refuses']; }
+        exporterVue('Bilan des résultats par école', ['École', 'Inscrits', 'Absents', 'Notes incomplètes', 'Admis', 'Refusés', 'Taux de réussite (%)'], $lignes, $formatExport,
+            ['sous_titre' => $filtresTexte . ($tot['admis'] + $tot['refuses'] > 0 ? ' — taux global : ' . round($tot['admis'] * 100 / ($tot['admis'] + $tot['refuses']), 1) . ' %' : ''),
+             'totaux' => [1, 2, 3, 4, 5], 'nom_fichier' => 'bilan_resultats_ecoles']);
+    }
+
+    $titre = 'Résultats';
+    if (exportType() === 'admis') { $resultats = array_values(array_filter($resultats, fn ($r) => $r['statut'] === 'Admis')); $titre = 'Candidats admis'; }
+    if (exportType() === 'refuses') { $resultats = array_values(array_filter($resultats, fn ($r) => $r['statut'] === 'Refusé')); $titre = 'Candidats refusés'; }
+    $entetes = array_merge(['École', 'Nom', 'Prénoms', 'Matricule DSPS'], array_map(fn ($m) => $m . ' (/' . $matieres[$m] . ')', $listeMatieres), ['Moyenne /20', 'Résultat']);
+    $lignes = [];
+    foreach ($resultats as $r) {
+        $lignes[] = array_merge([$r['ecole'], $r['nom'], $r['prenoms'], $r['matricule']],
+            array_map(fn ($m) => $r['notes'][$m] !== null ? (float) $r['notes'][$m] : '', $listeMatieres),
+            [$r['moyenne'] !== null ? (float) $r['moyenne'] : '', $r['statut']]);
+    }
+    exporterVue($titre, $entetes, $lignes, $formatExport, ['sous_titre' => $filtresTexte, 'nom_fichier' => 'resultats', 'orientation' => 'landscape']);
+}
+
 include '../views/layouts/header.php';
 ?>
 
@@ -336,6 +400,11 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>📊 Résultats & Notes</h2>
     <div>
+        <span class="me-2"><?= boutonExportVue([
+            ['type' => 'admis', 'titre' => 'Candidats admis seulement', 'aide' => 'Avec le filtre école / recherche actuel'],
+            ['type' => 'refuses', 'titre' => 'Candidats refusés seulement'],
+            ['type' => 'bilan_ecoles', 'titre' => 'Bilan par école', 'aide' => 'Inscrits, absents, admis, refusés, taux de réussite'],
+        ]) ?></span>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImportNotes"><i class="bi bi-file-earmark-excel"></i> Importer Excel</button>
         <a href="pdf_releve_notes.php?examen_id=<?= $examenId ?>&tri=alpha<?= $filtreEcole ? '&ecole_id=' . (int) $filtreEcole : '' ?>" class="btn btn-outline-primary me-2" target="_blank"><i class="bi bi-file-earmark-pdf"></i> Relevé (alphabétique)</a>
         <a href="pdf_releve_notes.php?examen_id=<?= $examenId ?>&tri=merite<?= $filtreEcole ? '&ecole_id=' . (int) $filtreEcole : '' ?>" class="btn btn-outline-primary me-2" target="_blank"><i class="bi bi-file-earmark-pdf"></i> Relevé (mérite)</a>

@@ -5,6 +5,7 @@
 // la liste affichée. Le bouton « Exporter » (boutonExportVue) reprend l'adresse de la page avec ses filtres et ajoute
 // export=xlsx|pdf ; des exports supplémentaires propres à l'onglet (effectifs, écoles ayant déposé...) passent par
 // export_type=<nom>.
+require_once __DIR__ . '/../vendor/autoload.php'; // Excel (PhpSpreadsheet) et PDF (Dompdf), même si la page ne les chargeait pas
 require_once __DIR__ . '/pdf_letterhead.php';
 
 if (!function_exists('exportDemande')) {

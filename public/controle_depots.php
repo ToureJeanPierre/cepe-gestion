@@ -2,6 +2,7 @@
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/depots_helpers.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 $pageTitle = 'Contrôle du dossier';
 
@@ -104,13 +105,48 @@ if ($analyse) {
     }
 }
 
+// ==========================================
+// EXPORT (Excel / PDF) : l'onglet affiché, ou la situation par école
+// ==========================================
+if ($analyse && ($formatExport = exportDemande())) {
+    $nomsEcolesExp = array_column($analyse['ecoles'], 'nom', 'id');
+    if (exportType() === 'ecoles') {
+        $lignes = [];
+        foreach ($analyse['ecoles'] as $e) {
+            $recu = ($e['nb_candidats'] || $e['fichiers_candidats'] ? 1 : 0) + ($e['nb_personnel'] || $e['fichiers_personnel'] ? 1 : 0);
+            $lignes[] = [$e['nom'], (int) $e['nb_candidats'], implode(' ; ', $e['fichiers_candidats']), (int) $e['nb_personnel'], implode(' ; ', $e['fichiers_personnel']),
+                $recu === 2 ? 'Complet' : ($recu === 1 ? 'Partiel' : 'Rien reçu')];
+        }
+        exporterVue('Contrôle du dossier : situation par école', ['École', 'Candidats en base', 'Fichier candidats', 'Personnel en base', 'Fichier personnel', 'Situation'], $lignes, $formatExport,
+            ['sous_titre' => 'Dossier analysé : ' . $dossier, 'totaux' => [1, 3], 'nom_fichier' => 'controle_ecoles', 'orientation' => 'landscape']);
+    }
+    $vueExp = $_GET['vue'] ?? 'a_traiter';
+    $libellesVues = ['a_traiter' => 'À importer', 'deja' => 'Déjà enregistrés', 'vides' => 'Modèles vides / non reconnus', 'copies' => 'Copies identiques', 'excel' => 'Excel', 'tous' => 'Tous'];
+    $lignes = [];
+    foreach ($analyse['fichiers'] as $f) {
+        $garde = match ($vueExp) {
+            'a_traiter' => in_array($f['statut'], ['nouveau', 'partiel'], true), 'deja' => $f['statut'] === 'deja',
+            'vides' => in_array($f['statut'], ['vide', 'non_reconnu', 'illisible'], true), 'excel' => $f['statut'] === 'excel',
+            'copies' => $f['meme_fichier_que'] !== null, default => true,
+        };
+        if (!$garde) { continue; }
+        $lignes[] = [$f['nom'], dirname($f['relatif']) === '.' ? '' : dirname($f['relatif']), $typesLibelles[$f['type']] ?? '', $f['ecole_id'] ? ($nomsEcolesExp[$f['ecole_id']] ?? '') : '',
+            $f['ecole_sure'] ? 'Oui' : 'Non', (int) $f['total'], (int) $f['deja'], (int) $f['nouveaux'], $statutsLibelles[$f['statut']][0] ?? $f['statut'], $f['meme_fichier_que'] ?? ''];
+    }
+    exporterVue('Contrôle du dossier : fichiers', ['Fichier', 'Sous-dossier', 'Type', 'École détectée', 'École sûre ?', 'Lignes', 'Déjà en base', 'Nouveaux', 'Statut', 'Identique à'], $lignes, $formatExport,
+        ['sous_titre' => 'Onglet « ' . ($libellesVues[$vueExp] ?? $vueExp) . ' » — dossier ' . $dossier, 'nom_fichier' => 'controle_fichiers', 'orientation' => 'landscape']);
+}
+
 include '../views/layouts/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h2><i class="bi bi-folder-check"></i> Contrôle du dossier de dépôts</h2>
     <?php if ($analyse): ?>
-        <a href="controle_depots.php?analyser=1&format=xlsx" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Exporter le contrôle en Excel</a>
+        <?= boutonExportVue([
+            ['type' => 'ecoles', 'titre' => 'Situation par école', 'aide' => 'Qu\'a-t-on reçu de chaque école ?'],
+            ['url' => 'controle_depots.php?analyser=1&format=xlsx', 'titre' => 'Contrôle complet (2 feuilles)', 'aide' => 'Fichiers et écoles, tout le dossier'],
+        ]) ?>
     <?php endif; ?>
 </div>
 

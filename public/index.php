@@ -1,6 +1,7 @@
 <?php
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 use Iepp\CepeGestion\AffectationEngine;
 
@@ -121,11 +122,48 @@ if ($examenRef && $totalCentres > 0) {
     $tauxAffectationSurveillants = round(($nbCentresAffectes / $totalCentres) * 100, 1);
 }
 
+// ==========================================
+// EXPORT (Excel / PDF) : les chiffres clés affichés, ou l'immatriculation école par école
+// ==========================================
+if ($formatExport = exportDemande()) {
+    if (exportType() === 'immatriculation_ecoles') {
+        $st = $pdo->prepare("
+            SELECT COALESCE(e.nom, 'Candidats libres') AS ecole, COUNT(*) AS total,
+                   SUM(CASE WHEN c.matricule_dsps IS NOT NULL AND c.matricule_dsps <> '' THEN 1 ELSE 0 END) AS immat,
+                   SUM(CASE WHEN (c.matricule_dsps IS NULL OR c.matricule_dsps = '') AND c.a_acte_naissance = 1 THEN 1 ELSE 0 END) AS non_immat_extrait,
+                   SUM(CASE WHEN (c.matricule_dsps IS NULL OR c.matricule_dsps = '') AND c.a_acte_naissance = 0 THEN 1 ELSE 0 END) AS sans_extrait
+            FROM candidats c LEFT JOIN ecoles e ON e.id = c.ecole_id
+            WHERE c.annee_id = ? GROUP BY e.id, e.nom ORDER BY ecole
+        ");
+        $st->execute([$anneeId]);
+        $lignes = [];
+        foreach ($st->fetchAll() as $r) {
+            $lignes[] = [$r['ecole'], (int) $r['total'], (int) $r['immat'], (int) $r['non_immat_extrait'], (int) $r['sans_extrait'], $r['total'] > 0 ? round($r['immat'] * 100 / $r['total'], 1) : ''];
+        }
+        exporterVue('Immatriculation des candidats par école', ['École', 'Candidats', 'Immatriculés', 'Non immatriculés (avec extrait)', 'Non immatriculés (sans extrait)', 'Taux d\'immatriculation (%)'],
+            $lignes, $formatExport, ['sous_titre' => 'Année ' . $ANNEE_SCOLAIRE, 'totaux' => [1, 2, 3, 4], 'nom_fichier' => 'immatriculation_ecoles']);
+    }
+    $lignes = [
+        ['Écoles', 'Total', $totalEcoles], ['Écoles', 'Publiques', $ecolesParStatut['Public']], ['Écoles', 'Privées', $ecolesParStatut['Privé']],
+        ['Écoles', 'Autonomes', $nbEcolesAutonomes], ['Écoles', 'Tutrices / rattachées', $nbEcolesRattachees], ['Centres d\'examen', 'Total', $totalCentres],
+        ['Enseignants', 'Total', $totalEnseignants], ['Enseignants', 'Directeurs', $enseignantsParFonction['Directeur'] ?? 0], ['Enseignants', 'Adjoints', $enseignantsParFonction['Adjoint'] ?? 0],
+        ['Candidats', 'Total', $totalCandidats], ['Candidats', 'Officiels', $nbCandidatsOfficiels], ['Candidats', 'Libres', $nbCandidatsLibres],
+        ['Immatriculation', 'Immatriculés', $nbImmatricules], ['Immatriculation', 'Non immatriculés (avec extrait)', $nbNonImmatricules],
+        ['Immatriculation', 'Non immatriculés (sans extrait)', $nbSansExtrait], ['Immatriculation', 'Taux d\'immatriculation (%)', $tauxImmatriculation],
+    ];
+    if ($tauxAffectationSurveillants !== null) {
+        $lignes[] = ['Surveillance', 'Centres avec surveillants affectés', $nbCentresAffectes];
+        $lignes[] = ['Surveillance', 'Taux d\'affectation (%)', $tauxAffectationSurveillants];
+    }
+    exporterVue('Chiffres clés', ['Domaine', 'Indicateur', 'Valeur'], $lignes, $formatExport, ['sous_titre' => 'Année ' . $ANNEE_SCOLAIRE, 'nom_fichier' => 'chiffres_cles']);
+}
+
 include '../views/layouts/header.php';
 ?>
 
 <div class="card shadow">
     <div class="card-header">
+        <div class="float-end"><?= boutonExportVue([['type' => 'immatriculation_ecoles', 'titre' => 'Immatriculation par école', 'aide' => 'Immatriculés, non immatriculés, sans extrait de naissance']], 'btn btn-sm btn-light') ?></div>
         <h3>Bienvenue - Application de Gestion du CEPE</h3>
         <p class="mb-0">
             IEPP Yopougon-Niangon - Service Examens et Concours

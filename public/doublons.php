@@ -1,5 +1,6 @@
 <?php
 require_once '../config/database.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 $pageTitle = 'Doublons possibles';
 
@@ -78,10 +79,41 @@ $grouper = function (array $lignes): array {
 $groupesCandidats = $grouper($candidatsDoublons);
 $groupesPersonnel = $grouper($personnelDoublons);
 
+// ==========================================
+// EXPORT (Excel / PDF) : les doublons affichés
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $lignes = [];
+    $n = 0;
+    if (exportType() !== 'personnel') {
+        foreach ($groupesCandidats as $groupe) {
+            $n++;
+            foreach ($groupe as $l) {
+                $lignes[] = ['Candidat', $n, $l['ecole_nom'] ?? 'Candidat libre', $l['nom'], $l['prenoms'], $l['date_naissance'] ? date('d/m/Y', strtotime($l['date_naissance'])) : '',
+                    $l['matricule_dsps'] ?? '', ($l['matricule_verifie'] && $l['droits_payes']) ? 'Validé' : 'Non validé', '', date('d/m/Y H:i', strtotime($l['created_at']))];
+            }
+        }
+    }
+    if (exportType() !== 'candidats') {
+        foreach ($groupesPersonnel as $groupe) {
+            $n++;
+            foreach ($groupe as $l) {
+                $lignes[] = ['Personnel', $n, $l['ecole_nom'] ?? '', $l['nom'], $l['prenoms'], '', $l['matricule'] ?: ($l['numero_autorisation_diriger'] ?: ($l['numero_autorisation_enseigner'] ?: '')),
+                    $l['fonction'] ?? '', $l['telephone'] ?? '', date('d/m/Y H:i', strtotime($l['created_at']))];
+            }
+        }
+    }
+    exporterVue('Doublons possibles', ['Type', 'Groupe n°', 'École', 'Nom', 'Prénoms', 'Date de naissance', 'Matricule / N° autorisation', 'Validé / Fonction', 'Téléphone', 'Enregistré le'],
+        $lignes, $formatExport, ['sous_titre' => 'Personnes enregistrées plusieurs fois dans la même école — année ' . $ANNEE_SCOLAIRE, 'nom_fichier' => 'doublons', 'orientation' => 'landscape']);
+}
+
 include '../views/layouts/header.php';
 ?>
 
-<h2 class="mb-3"><i class="bi bi-files"></i> Doublons possibles — <?= htmlspecialchars($ANNEE_SCOLAIRE) ?></h2>
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h2 class="mb-0"><i class="bi bi-files"></i> Doublons possibles — <?= htmlspecialchars($ANNEE_SCOLAIRE) ?></h2>
+    <?= boutonExportVue([['type' => 'candidats', 'titre' => 'Doublons de candidats seulement'], ['type' => 'personnel', 'titre' => 'Doublons de personnel seulement']]) ?>
+</div>
 
 <?php if ($success): ?><div class="alert alert-success alert-dismissible fade show"><?= htmlspecialchars($success) ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div><?php endif; ?>
 <?php if ($error): ?><div class="alert alert-danger"><?= htmlspecialchars($error) ?></div><?php endif; ?>

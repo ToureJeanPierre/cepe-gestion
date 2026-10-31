@@ -6,6 +6,8 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once '../vendor/autoload.php';
 require_once '../config/database.php';
+require_once __DIR__ . '/../src/export_vue.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 
 use Iepp\CepeGestion\AffectationEngine;
 
@@ -69,6 +71,53 @@ $typeExamenLibelle = AffectationEngine::libelleTypeExamen($examenActif['code']);
 $estFinal = AffectationEngine::estExamenFinal($examenActif['code']);
 
 $engine = new AffectationEngine($pdo, $anneeId);
+
+// ==========================================
+// EXPORT (Excel / PDF) : les affectations de l'examen affiché, par centre
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $stExp = $pdo->prepare("
+        SELECT ce.nom AS nom_centre, a.role, a.est_manuel, a.conflit_force, ps.numero_salle,
+               p.nom, p.prenoms, p.fonction, p.niveau_tenu, p.telephone, p.matricule, ep.nom AS nom_ecole_personnel
+        FROM affectations a
+        INNER JOIN centres c ON c.id = a.centre_id
+        INNER JOIN ecoles ce ON ce.id = c.ecole_id
+        INNER JOIN personnel p ON p.id = a.enseignant_id
+        LEFT JOIN ecoles ep ON ep.id = p.ecole_id
+        LEFT JOIN plan_salles ps ON ps.id = a.plan_salle_id
+        WHERE a.annee_id = ? AND a.type_examen = ?
+        ORDER BY ce.nom, FIELD(a.role, 'Président', 'Chef Secrétariat', 'Membre Secrétariat', 'Superviseur', 'Surveillant', 'Suppléant'), p.nom, p.prenoms
+    ");
+    $stExp->execute([$anneeId, $typeExamenLibelle]);
+    $affectationsExport = $stExp->fetchAll();
+    $filtresTexte = resumeFiltres(['Examen' => $examenActif['libelle']]) . ' — année ' . $ANNEE_SCOLAIRE;
+    $telephones = fn ($t) => implode(' / ', extraireNumerosTelephone($t));
+
+    if (exportType() === 'effectifs_centres') {
+        $roles = ['Président', 'Chef Secrétariat', 'Membre Secrétariat', 'Superviseur', 'Surveillant', 'Suppléant'];
+        $groupes = [];
+        foreach ($affectationsExport as $a) {
+            $g = &$groupes[$a['nom_centre']];
+            $g = $g ?? array_fill_keys($roles, 0);
+            $g[$a['role']]++;
+            unset($g);
+        }
+        ksort($groupes);
+        $lignes = [];
+        foreach ($groupes as $centre => $g) {
+            $lignes[] = array_merge([$centre], array_values($g), [array_sum($g)]);
+        }
+        exporterVue('Équipes par centre d\'examen', array_merge(['Centre'], $roles, ['Total']), $lignes, $formatExport,
+            ['sous_titre' => $filtresTexte, 'totaux' => [1, 2, 3, 4, 5, 6, 7], 'nom_fichier' => 'equipes_centres', 'orientation' => 'landscape']);
+    }
+    $lignes = [];
+    foreach ($affectationsExport as $a) {
+        $lignes[] = [$a['nom_centre'], $a['role'], $a['nom'], $a['prenoms'], $a['fonction'] ?? '', $a['nom_ecole_personnel'] ?? '', $a['niveau_tenu'] ?? '',
+            $a['numero_salle'] ?? '', $telephones($a['telephone'] ?? ''), $a['est_manuel'] ? 'Manuelle' : 'Automatique', $a['conflit_force'] ? 'Oui (forcé)' : ''];
+    }
+    exporterVue('Affectations : surveillance et encadrement', ['Centre', 'Rôle', 'Nom', 'Prénoms', 'Fonction', 'École d\'origine', 'Niveau tenu', 'Salle', 'Téléphone', 'Affectation', 'Conflit'],
+        $lignes, $formatExport, ['sous_titre' => $filtresTexte, 'nom_fichier' => 'affectations', 'orientation' => 'landscape']);
+}
 
 
 /*
@@ -323,6 +372,9 @@ include '../views/layouts/header.php';
                 Année scolaire : <strong><?= htmlspecialchars($ANNEE_SCOLAIRE) ?></strong>
             </div>
         </div>
+        <div><?= boutonExportVue([
+            ['type' => 'effectifs_centres', 'titre' => 'Équipes par centre', 'aide' => 'Nombre de présidents, surveillants, suppléants... par centre'],
+        ]) ?></div>
     </div>
 
     <div id="messages-affectations">

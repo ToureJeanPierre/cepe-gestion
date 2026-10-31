@@ -2,6 +2,7 @@
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/telephone_helpers.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 $pageTitle = 'Suivi des dépôts';
 
@@ -94,54 +95,31 @@ if (in_array($filtreEtat, ['deposes', 'candidats_deposes', 'personnel_deposes'],
 }
 
 // ==========================================
-// EXPORT EXCEL (respecte les filtres en cours)
+// EXPORT (Excel / PDF) : exactement la liste affichée, avec ses filtres
 // ==========================================
-if (($_GET['format'] ?? '') === 'xlsx') {
-    $classeur = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-    $feuille = $classeur->getActiveSheet();
-    $feuille->setTitle('Suivi des dépôts');
-    $feuille->fromArray([
-        'École', 'Statut', 'Code DSPS', 'École tutrice', 'Directeur', 'Téléphone directeur',
-        'Candidats reçus', 'dont validés', 'Dernier dépôt candidats',
-        'Personnel reçu', 'Dernier dépôt personnel', 'Situation',
-    ], null, 'A1');
-    $l = 2;
-    foreach ($ecoles as $e) {
-        $feuille->fromArray([
-            $e['nom'], $e['statut'], '', $e['tutrice_nom'], $e['directeur_nom'], '',
-            (int) $e['nb_candidats'], (int) $e['nb_candidats_valides'],
-            $e['dernier_candidat'] ? date('d/m/Y', strtotime($e['dernier_candidat'])) : '',
-            (int) $e['nb_personnel'],
-            $e['dernier_personnel'] ? date('d/m/Y', strtotime($e['dernier_personnel'])) : '',
-            $etatsLibelles[$e['etat']],
-        ], null, 'A' . $l);
-        $feuille->setCellValueExplicit('C' . $l, (string) $e['code_dsps'], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-        $feuille->setCellValueExplicit('F' . $l, normaliserTelephone($e['directeur_telephone']), \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
-        $l++;
-    }
-    $feuille->getStyle('A1:L1')->getFont()->setBold(true);
-    $feuille->getStyle('A1:L1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('D9E7F5');
-    $feuille->freezePane('A2');
-    $feuille->setAutoFilter('A1:L' . max(1, $l - 1));
-    foreach (range('A', 'L') as $col) {
-        $feuille->getColumnDimension($col)->setAutoSize(true);
-    }
-
-    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    header('Content-Disposition: attachment; filename="suivi_depots_' . date('Y-m-d') . '.xlsx"');
-    header('Cache-Control: max-age=0');
-    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($classeur))->save('php://output');
-    exit;
+if (($_GET['format'] ?? '') === 'xlsx' && !isset($_GET['export'])) {
+    $_GET['export'] = 'xlsx'; // ancien lien « format=xlsx » toujours valable
 }
-
-$qsExport = http_build_query(array_filter(['etat' => $filtreEtat, 'type' => $filtreType, 'q' => $recherche]) + ['format' => 'xlsx']);
+if ($formatExport = exportDemande()) {
+    $filtresTexte = resumeFiltres(['Situation' => $etatsLibelles[$filtreEtat] ?? '', 'Secteur' => $filtreType, 'Recherche' => $recherche]) . ' — année ' . $ANNEE_SCOLAIRE;
+    $lignes = [];
+    foreach ($ecoles as $e) {
+        $lignes[] = [
+            $e['nom'], $e['statut'], (string) $e['code_dsps'], $e['tutrice_nom'] ?? '', $e['directeur_nom'] ?? '', normaliserTelephone($e['directeur_telephone']),
+            (int) $e['nb_candidats'], (int) $e['nb_candidats_valides'], $e['dernier_candidat'] ? date('d/m/Y', strtotime($e['dernier_candidat'])) : '',
+            (int) $e['nb_personnel'], $e['dernier_personnel'] ? date('d/m/Y', strtotime($e['dernier_personnel'])) : '', $etatsLibelles[$e['etat']],
+        ];
+    }
+    exporterVue('Suivi des dépôts', ['École', 'Statut', 'Code DSPS', 'École tutrice', 'Directeur', 'Téléphone directeur', 'Candidats reçus', 'dont validés', 'Dernier dépôt candidats',
+        'Personnel reçu', 'Dernier dépôt personnel', 'Situation'], $lignes, $formatExport, ['sous_titre' => $filtresTexte, 'totaux' => [6, 7, 9], 'nom_fichier' => 'suivi_depots', 'orientation' => 'landscape']);
+}
 
 include '../views/layouts/header.php';
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2><i class="bi bi-clipboard-check"></i> Suivi des dépôts — <?= htmlspecialchars($ANNEE_SCOLAIRE) ?></h2>
-    <a href="suivi_depots.php?<?= htmlspecialchars($qsExport) ?>" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel"></i> Exporter en Excel</a>
+    <?= boutonExportVue() ?>
 </div>
 
 <div class="row g-3 mb-4">

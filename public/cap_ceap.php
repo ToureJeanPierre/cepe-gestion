@@ -6,6 +6,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once '../config/database.php';
 require_once __DIR__ . '/../src/cap_ceap_config.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 $pageTitle = 'CAP / CEAP';
 
@@ -75,6 +76,28 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $candidats = $stmt->fetchAll();
 
+// ==========================================
+// EXPORT (Excel / PDF) : exactement la liste affichée, avec son filtre
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $filtresTexte = resumeFiltres(['Nature de l\'examen' => CAP_CEAP_NATURES[$filtreNature] ?? '']) . ' — année ' . $ANNEE_SCOLAIRE;
+    $lignes = [];
+    foreach ($candidats as $c) {
+        $pieces = json_decode($c['pieces_json'] ?? '{}', true) ?: [];
+        $liste = CAP_CEAP_PIECES[$c['nature_examen']] ?? [];
+        $manquantes = [];
+        foreach ($liste as $i => $libelle) {
+            if (empty($pieces[$i]) && empty($pieces[$libelle])) { $manquantes[] = $libelle; }
+        }
+        $nbFournies = count($liste) - count($manquantes);
+        if (exportType() === 'incomplets' && !$manquantes) { continue; }
+        $lignes[] = [CAP_CEAP_NATURES[$c['nature_examen']] ?? $c['nature_examen'], $c['nom'], $c['prenoms'], $c['ecole'] ?? '', $c['contact'] ?? '',
+            $nbFournies . ' / ' . count($liste), implode(' ; ', $manquantes), $c['observations'] ?? ''];
+    }
+    exporterVue(exportType() === 'incomplets' ? 'CAP / CEAP : dossiers incomplets' : 'Candidats CAP / CEAP', ['Nature de l\'examen', 'Nom', 'Prénoms', 'École', 'Contact', 'Pièces fournies', 'Pièces manquantes', 'Observations'],
+        $lignes, $formatExport, ['sous_titre' => $filtresTexte, 'nom_fichier' => 'cap_ceap', 'orientation' => 'landscape']);
+}
+
 $candidatAModifier = null;
 if (isset($_GET['modifier'])) {
     $stmt = $pdo->prepare("SELECT * FROM cap_ceap_candidats WHERE id = ? AND annee_id = ?");
@@ -93,6 +116,7 @@ include '../views/layouts/header.php';
         <p class="text-muted mb-0 small">Candidats aux concours enseignants</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
+        <?= boutonExportVue([['type' => 'incomplets', 'titre' => 'Dossiers incomplets seulement', 'aide' => 'Avec la liste des pièces manquantes']]) ?>
         <a href="pdf_bordereau_recapitulatif_cap_ceap.php" target="_blank" class="btn btn-outline-success"><i class="bi bi-file-earmark-pdf"></i> Bordereau récapitulatif</a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter</button>
     </div>

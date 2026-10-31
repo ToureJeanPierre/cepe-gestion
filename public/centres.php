@@ -6,6 +6,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
@@ -1195,6 +1196,51 @@ unset($centre);
 |--------------------------------------------------------------------------
 */
 
+// ==========================================
+// EXPORT (Excel / PDF) : les centres et leurs effectifs, tels qu'affichés
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $filtresTexte = resumeFiltres(['Examen' => $examenActif['libelle'] ?? '']) . ' — année ' . $ANNEE_SCOLAIRE;
+    $idExamen = (int) ($examenActif['id'] ?? 0);
+
+    if (exportType() === 'ecoles_centres') {
+        $lignes = [];
+        foreach ($centres as $c) {
+            foreach ($c['ecoles_affectees'] as $e) {
+                $lignes[] = [$e['nom'], $e['code_dsps'] ?? '', $c['nom_centre']];
+            }
+        }
+        usort($lignes, fn ($a, $b) => [$a[2], $a[0]] <=> [$b[2], $b[0]]);
+        exporterVue('Répartition des écoles par centre d\'examen', ['École', 'Code DSPS', 'Centre d\'examen'], $lignes, $formatExport,
+            ['sous_titre' => 'Année ' . $ANNEE_SCOLAIRE, 'nom_fichier' => 'ecoles_par_centre']);
+    }
+    if (exportType() === 'sans_centre') {
+        $lignes = array_map(fn ($e) => [$e['nom'], $e['code_dsps'] ?? ''], $ecolesSansAffectation);
+        exporterVue('Écoles sans centre d\'examen', ['École', 'Code DSPS'], $lignes, $formatExport,
+            ['sous_titre' => 'Écoles officielles non rattachées à un centre — année ' . $ANNEE_SCOLAIRE, 'nom_fichier' => 'ecoles_sans_centre']);
+    }
+    if (exportType() === 'effectifs_examens') {
+        $entetes = ['Centre', 'Écoles'];
+        foreach ($examens as $ex) { $entetes[] = $ex['libelle']; }
+        $lignes = [];
+        foreach ($centres as $c) {
+            $l = [$c['nom_centre'], $c['nombre_ecoles']];
+            foreach ($examens as $ex) { $l[] = (int) ($c['effectifs'][(int) $ex['id']]['effectif_retenu'] ?? 0); }
+            $lignes[] = $l;
+        }
+        exporterVue('Effectifs retenus par centre et par examen', $entetes, $lignes, $formatExport,
+            ['sous_titre' => 'Année ' . $ANNEE_SCOLAIRE, 'totaux' => range(1, count($entetes) - 1), 'nom_fichier' => 'effectifs_centres', 'orientation' => 'landscape']);
+    }
+    $lignes = [];
+    foreach ($centres as $c) {
+        $eff = $c['effectifs'][$idExamen] ?? ['effectif_calcule' => 0, 'effectif_retenu' => 0, 'est_manuel' => 0];
+        $lignes[] = [$c['nom_centre'], $c['code_centre'] ?? '', $c['nombre_ecoles'], implode(' ; ', array_map(fn ($e) => $e['nom'], $c['ecoles_affectees'])),
+            (int) $eff['effectif_calcule'], (int) $eff['effectif_retenu'], $eff['est_manuel'] ? 'Manuel' : 'Automatique'];
+    }
+    exporterVue('Centres d\'examen', ['Centre', 'Code DSPS', 'Nb d\'écoles', 'Écoles rattachées', 'Effectif calculé', 'Effectif retenu', 'Mode'], $lignes, $formatExport,
+        ['sous_titre' => $filtresTexte, 'totaux' => [2, 4, 5], 'nom_fichier' => 'centres_examen', 'orientation' => 'landscape']);
+}
+
 include '../views/layouts/header.php';
 
 ?>
@@ -1222,6 +1268,12 @@ include '../views/layouts/header.php';
 
 
     <div>
+
+        <span class="me-2"><?= boutonExportVue([
+            ['type' => 'effectifs_examens', 'titre' => 'Effectifs par centre et par examen', 'aide' => 'Effectif retenu de chaque centre pour chaque examen'],
+            ['type' => 'ecoles_centres', 'titre' => 'Écoles par centre', 'aide' => 'Quelle école compose dans quel centre'],
+            ['type' => 'sans_centre', 'titre' => 'Écoles sans centre', 'aide' => 'Écoles officielles non encore rattachées'],
+        ]) ?></span>
 
         <button
             class="btn btn-primary me-2"

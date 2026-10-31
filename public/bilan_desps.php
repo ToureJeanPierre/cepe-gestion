@@ -2,6 +2,7 @@
 require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once __DIR__ . '/../src/desps_site.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 $pageTitle = 'Bilan DESPS / DFA';
 
@@ -83,6 +84,32 @@ $tous = $stmt->fetchAll();
 $idsTous = array_map(fn ($r) => (int) $r['id'], $tous);
 $idsNonVerifies = array_map(fn ($r) => (int) $r['id'], array_filter($tous, fn ($r) => $r['cursus_id'] === null));
 
+// ==========================================
+// EXPORT (Excel / PDF) : le bilan affiché (toutes les écoles, ou le détail de l'école choisie)
+// ==========================================
+if ($formatExport = exportDemande()) {
+    if (!$ecole) {
+        $recapExport = recapBilanParEcole($pdo, (int) $anneeId);
+        $lignes = [];
+        foreach ($recapExport as $r) {
+            $lignes[] = [$r['nom'], (int) $r['total'], (int) $r['OK'], (int) $r['DFA'], (int) $r['CHANGEMENT_ECOLE'], (int) $r['a_traiter'], (int) $r['NON_VERIFIE']];
+        }
+        exporterVue('Bilan DESPS / DFA par école', ['École', 'Élèves', 'OK', 'DFA à remonter', 'Changement d\'école', 'À traiter', 'Pas encore vérifiés'], $lignes, $formatExport,
+            ['sous_titre' => 'Année ' . $ANNEE_SCOLAIRE, 'totaux' => [1, 2, 3, 4, 5, 6], 'nom_fichier' => 'bilan_desps_ecoles']);
+    }
+    $elevesExport = lireBilanEcole($pdo, (int) $anneeId, $ecoleId);
+    $seulementDfa = exportType() === 'dfa';
+    $lignes = [];
+    foreach ($elevesExport as $e) {
+        if ($seulementDfa && $e['statut'] !== 'DFA') { continue; }
+        $dfa = implode(' ; ', array_map(fn ($l) => $l['annee'] . ' ' . $l['dfa'] . ' (' . $l['classe'] . ')', $e['lignes']));
+        $lignes[] = [$e['nom'], $e['prenoms'], (string) $e['matricule_dsps'], (string) ($e['ecole_desps'] ?? ''), (string) ($e['classe_desps'] ?? ''),
+            $e['annee_debut'] ? $e['annee_debut'] . '-' . ($e['annee_debut'] + 1) : '', $badges[$e['statut']][0] ?? $e['statut'], $dfa, implode(' | ', $e['avert'])];
+    }
+    exporterVue($seulementDfa ? 'Élèves à remonter par DFA' : 'Bilan DESPS / DFA', ['Nom', 'Prénoms', 'Matricule', 'École (site AGCP)', 'Classe', 'Année', 'Statut', 'Lignes DFA', 'Avertissements'],
+        $lignes, $formatExport, ['sous_titre' => 'École : ' . $ecole['nom'] . ' — année ' . $ANNEE_SCOLAIRE, 'nom_fichier' => 'bilan_desps_' . preg_replace('/[^A-Za-z0-9]+/', '_', $ecole['nom']), 'orientation' => 'landscape']);
+}
+
 include '../views/layouts/header.php';
 ?>
 
@@ -90,6 +117,7 @@ include '../views/layouts/header.php';
     <h2><i class="bi bi-mortarboard"></i> Bilan DESPS / DFA — <?= htmlspecialchars($ANNEE_SCOLAIRE) ?>
         <?php if ($ecole): ?><small class="text-muted">· <?= htmlspecialchars($ecole['nom']) ?></small><?php endif; ?></h2>
     <div class="d-flex gap-2 flex-wrap">
+        <?= boutonExportVue($ecole ? [['type' => 'dfa', 'titre' => 'Élèves à remonter par DFA seulement', 'aide' => 'Cette école uniquement']] : []) ?>
         <?php if ($ecole): ?><a href="bilan_desps.php" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Toutes les écoles</a><?php endif; ?>
         <a href="https://agcp.sigfne.net/edit/fiches-primaire/" target="_blank" rel="noopener" class="btn btn-outline-secondary" title="Ouvrir la page officielle de la fiche cursus"><i class="bi bi-box-arrow-up-right"></i> Site AGCP</a>
         <button type="button" class="btn btn-success" id="btnVerifierNouveaux" <?= ($anneeLectureSeule || !$idsNonVerifies) ? 'disabled' : '' ?>>
