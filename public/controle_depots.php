@@ -165,12 +165,15 @@ include '../views/layouts/header.php';
     <?php if ($copies): ?>
         <div class="alert alert-warning">
             <strong><i class="bi bi-files"></i> <?= count($copies) ?> fichier(s) identique(s) à un autre fichier du dossier</strong> (même contenu, octet pour octet) —
-            un directeur a peut-être renvoyé la liste d'une autre école, ou le fichier a été enregistré deux fois :
-            <ul class="mb-0">
-                <?php foreach ($copies as $c): ?>
-                    <li><?= htmlspecialchars($c['nom']) ?> <span class="text-muted">=</span> <?= htmlspecialchars($c['meme_fichier_que']) ?></li>
-                <?php endforeach; ?>
-            </ul>
+            un directeur a peut-être renvoyé la liste d'une autre école, ou le fichier a été enregistré deux fois.
+            <details class="mt-2">
+                <summary style="cursor: pointer;" class="fw-semibold">Afficher la liste (<?= count($copies) ?>)</summary>
+                <ul class="mb-0 mt-2" style="max-height: 320px; overflow-y: auto; word-break: break-word;">
+                    <?php foreach ($copies as $c): ?>
+                        <li><?= htmlspecialchars($c['nom']) ?> <span class="text-muted">=</span> <?= htmlspecialchars($c['meme_fichier_que']) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </details>
         </div>
     <?php endif; ?>
 
@@ -189,47 +192,54 @@ include '../views/layouts/header.php';
         <div class="card-body p-0 table-responsive">
             <table class="table table-sm table-hover align-middle mb-0">
                 <thead class="table-light">
-                    <tr><th>Fichier</th><th>Type</th><th>École</th><th class="text-end">Lignes</th><th class="text-end">Déjà en base</th><th class="text-end">Nouveaux</th><th>Statut</th><th style="min-width:330px;">Action</th></tr>
+                    <tr><th>Fichier</th><th>Type et école</th><th class="text-center">Contenu</th><th>Statut</th></tr>
                 </thead>
                 <tbody>
                     <?php if (!$fichiersAffiches): ?>
-                        <tr><td colspan="8" class="text-center text-muted py-4">Aucun fichier dans cette vue.</td></tr>
+                        <tr><td colspan="4" class="text-center text-muted py-4">Aucun fichier dans cette vue.</td></tr>
                     <?php endif; ?>
                     <?php foreach ($fichiersAffiches as $f): ?>
                         <?php [$libStatut, $classeStatut] = $statutsLibelles[$f['statut']]; $importable = in_array($f['statut'], ['nouveau', 'partiel', 'deja'], true); ?>
-                        <tr>
-                            <td>
+                        <tr<?= $importable ? ' style="border-bottom-color: transparent;"' : '' ?>>
+                            <td style="word-break: break-word;">
                                 <strong><?= htmlspecialchars($f['nom']) ?></strong>
                                 <div class="small text-muted"><?= htmlspecialchars(dirname($f['relatif']) === '.' ? 'racine du dossier' : dirname($f['relatif'])) ?> · <?= date('d/m/Y H:i', $f['mtime']) ?></div>
                                 <?php if ($f['meme_fichier_que']): ?><div class="small text-warning"><i class="bi bi-files"></i> identique à « <?= htmlspecialchars(basename($f['meme_fichier_que'])) ?> »</div><?php endif; ?>
                             </td>
-                            <td><?= htmlspecialchars($typesLibelles[$f['type']] ?? '—') ?></td>
                             <td class="small">
+                                <div><strong><?= htmlspecialchars($typesLibelles[$f['type']] ?? '—') ?></strong></div>
                                 <?php if ($f['ecole_id']): ?>
-                                    <i class="bi bi-check2 text-success"></i> <?= htmlspecialchars($nomsEcoles[$f['ecole_id']] ?? '') ?>
+                                    <div><i class="bi bi-check2 text-success"></i> <?= htmlspecialchars($nomsEcoles[$f['ecole_id']] ?? '') ?></div>
                                 <?php elseif ($importable): ?>
-                                    <span class="text-warning"><i class="bi bi-question-circle"></i> à confirmer</span>
+                                    <div class="text-warning"><i class="bi bi-question-circle"></i> école à confirmer</div>
                                     <?php if ($f['ecole_texte']): ?><div class="text-muted">écrit dans le fichier : « <?= htmlspecialchars($f['ecole_texte']) ?> »</div><?php endif; ?>
-                                <?php else: ?>—<?php endif; ?>
+                                <?php endif; ?>
                             </td>
-                            <td class="text-end"><?= $f['total'] ?: '' ?><?php if ($f['doublons_fichier']): ?><div class="small text-warning" title="Lignes répétées dans le fichier"><?= $f['doublons_fichier'] ?> doublon(s)</div><?php endif; ?></td>
-                            <td class="text-end"><?= $f['total'] ? $f['deja'] : '' ?></td>
-                            <td class="text-end"><?= $f['total'] ? '<strong>' . $f['nouveaux'] . '</strong>' : '' ?></td>
+                            <td class="text-center small">
+                                <?php if ($f['total']): ?>
+                                    <div><strong><?= $f['total'] ?></strong> ligne(s)</div>
+                                    <div class="text-muted"><?= $f['deja'] ?> déjà en base · <strong class="text-body"><?= $f['nouveaux'] ?> nouveau(x)</strong></div>
+                                    <?php if ($f['doublons_fichier']): ?><div class="text-warning" title="Lignes répétées dans le fichier"><?= $f['doublons_fichier'] ?> doublon(s)</div><?php endif; ?>
+                                <?php endif; ?>
+                            </td>
                             <td><span class="badge <?= $classeStatut ?>"><?= $libStatut ?></span><?php if ($f['erreur']): ?><div class="small text-danger"><?= htmlspecialchars($f['erreur']) ?></div><?php endif; ?></td>
-                            <td>
-                                <?php if ($importable): ?>
-                                    <?php $cible = $f['type'] === 'candidats' ? 'candidats.php' : 'enseignants.php'; ?>
-                                    <form method="POST" action="<?= $cible ?>" class="d-flex gap-1"
+                        </tr>
+                        <?php if ($importable): ?>
+                            <?php $cible = $f['type'] === 'candidats' ? 'candidats.php' : 'enseignants.php'; ?>
+                            <tr class="table-light">
+                                <td colspan="4" class="py-2">
+                                    <form method="POST" action="<?= $cible ?>" class="d-flex flex-wrap align-items-center gap-2"
                                           onsubmit="var s=this.querySelector('select'); if(!s.value){alert('Choisis d\'abord l\'école.');return false;} return confirm('Importer « <?= htmlspecialchars(addslashes($f['nom'])) ?> » (' + <?= (int) $f['total'] ?> + ' lignes) dans l\'école « ' + s.options[s.selectedIndex].text + ' » ?');">
                                         <input type="hidden" name="depot_chemin" value="<?= htmlspecialchars($f['relatif']) ?>">
                                         <input type="hidden" name="retour" value="controle_depots">
+                                        <span class="small text-muted"><i class="bi bi-arrow-return-right"></i> Importer dans l'école :</span>
                                         <?php if ($f['type'] === 'candidats'): ?>
                                             <input type="hidden" name="importer_candidats" value="1">
-                                            <select name="ecole_id_import_docx" class="form-select form-select-sm">
+                                            <select name="ecole_id_import_docx" class="form-select form-select-sm" style="flex: 1 1 260px; max-width: 520px; min-width: 0;">
                                         <?php else: ?>
                                             <input type="hidden" name="importer_personnel" value="1">
                                             <input type="hidden" name="type_import" value="enseignant_ecole">
-                                            <select name="ecole_id_import" class="form-select form-select-sm">
+                                            <select name="ecole_id_import" class="form-select form-select-sm" style="flex: 1 1 260px; max-width: 520px; min-width: 0;">
                                         <?php endif; ?>
                                             <option value="">— choisir l'école —</option>
                                             <?php
@@ -241,13 +251,13 @@ include '../views/layouts/header.php';
                                                 <option value="<?= $id ?>"><?= htmlspecialchars($nom) ?></option>
                                             <?php endforeach; ?>
                                         </select>
-                                        <button type="submit" class="btn btn-sm <?= $f['statut'] === 'deja' ? 'btn-outline-secondary' : 'btn-success' ?>" style="white-space:nowrap;">
-                                            <?= $f['statut'] === 'deja' ? 'Ré-importer' : 'Importer' ?>
+                                        <button type="submit" class="btn btn-sm <?= $f['statut'] === 'deja' ? 'btn-outline-secondary' : 'btn-success' ?>" style="white-space: nowrap;">
+                                            <i class="bi bi-box-arrow-in-down"></i> <?= $f['statut'] === 'deja' ? 'Ré-importer' : 'Importer' ?>
                                         </button>
                                     </form>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
+                                </td>
+                            </tr>
+                        <?php endif; ?>
                     <?php endforeach; ?>
                 </tbody>
             </table>
