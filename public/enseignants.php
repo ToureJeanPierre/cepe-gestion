@@ -6,6 +6,7 @@ require_once __DIR__ . '/../src/docx_helpers.php';
 require_once __DIR__ . '/../src/telephone_helpers.php';
 use PhpOffice\PhpSpreadsheet\IOFactory;
 require_once __DIR__ . '/../src/depots_helpers.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 // Le personnel est rattaché à l'année scolaire (personnel.annee_id), au même
 // titre que les candidats : ce contrôle manquait ici alors qu'il existe déjà
@@ -383,6 +384,63 @@ $stmtListe = $pdo->prepare($sql);
 $stmtListe->execute($params);
 $personnels = $stmtListe->fetchAll();
 
+// ==========================================
+// EXPORT (Excel / PDF) : exactement la liste affichée, avec ses filtres
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $nomEcoleFiltre = '';
+    if ($filtreEcole) {
+        $stNom = $pdo->prepare("SELECT nom FROM ecoles WHERE id = ?");
+        $stNom->execute([$filtreEcole]);
+        $nomEcoleFiltre = (string) $stNom->fetchColumn();
+    }
+    $filtresTexte = resumeFiltres(['Catégorie' => CATEGORIES_PERSONNEL[$filtreCategorie] ?? '', 'École' => $nomEcoleFiltre, 'Disponibilité' => $filtreDispo, 'Recherche' => $filtreRecherche]);
+    $telephones = fn ($t) => implode(' / ', extraireNumerosTelephone($t));
+    $identifiant = fn ($p) => $p['matricule'] ?: ($p['numero_autorisation_diriger'] ?: ($p['numero_autorisation_enseigner'] ?: ''));
+
+    if (exportType() === 'effectifs') {
+        // Effectifs par école, calculés sur la liste affichée (donc sur les filtres actuels).
+        $groupes = [];
+        foreach ($personnels as $p) {
+            $k = $p['ecole_nom'] ?: '(sans école : conseillers, administratifs...)';
+            $g = &$groupes[$k];
+            $g = $g ?? ['total' => 0, 'hommes' => 0, 'femmes' => 0, 'directeurs' => 0, 'actifs' => 0, 'indispo' => 0, 'statut' => $p['type_ecole'] ?? ''];
+            $g['total']++;
+            $g[$p['sexe'] === 'F' ? 'femmes' : 'hommes']++;
+            if (stripos((string) $p['fonction'], 'direct') === 0) { $g['directeurs']++; }
+            $g[$p['disponibilite'] === 'En activité' ? 'actifs' : 'indispo']++;
+            unset($g);
+        }
+        ksort($groupes);
+        $lignes = [];
+        foreach ($groupes as $nom => $g) {
+            $lignes[] = [$nom, $g['statut'], $g['total'], $g['hommes'], $g['femmes'], $g['directeurs'], $g['actifs'], $g['indispo']];
+        }
+        exporterVue('Effectifs du personnel par école', ['École', 'Secteur', 'Effectif', 'Hommes', 'Femmes', 'Directeurs', 'En activité', 'Congé / absent'], $lignes, $formatExport,
+            ['sous_titre' => $filtresTexte, 'totaux' => [2, 3, 4, 5, 6, 7], 'nom_fichier' => 'effectifs_personnel']);
+    }
+    if (exportType() === 'depot') {
+        // Toutes les écoles : ont-elles déposé leur liste d'enseignants ?
+        $st = $pdo->prepare("SELECT e.nom, e.statut, e.directeur_nom, e.directeur_telephone, COUNT(p.id) AS nb
+            FROM ecoles e LEFT JOIN personnel p ON p.ecole_id = e.id AND p.annee_id = ? AND p.categorie = 'enseignant'
+            GROUP BY e.id ORDER BY e.nom");
+        $st->execute([$anneeId]);
+        $lignes = [];
+        foreach ($st->fetchAll() as $e) {
+            $lignes[] = [$e['nom'], $e['statut'], (int) $e['nb'], (int) $e['nb'] > 0 ? 'Oui' : 'Non', $e['directeur_nom'] ?? '', $telephones($e['directeur_telephone'] ?? '')];
+        }
+        exporterVue('Écoles : liste des enseignants déposée ou non', ['École', 'Secteur', 'Enseignants reçus', 'Liste déposée ?', 'Directeur', 'Téléphone'], $lignes, $formatExport,
+            ['sous_titre' => 'Toutes les écoles — année ' . $ANNEE_SCOLAIRE, 'totaux' => [2], 'nom_fichier' => 'depot_personnel']);
+    }
+    $lignes = [];
+    foreach ($personnels as $p) {
+        $lignes[] = [$p['nom'], $p['prenoms'], $p['sexe'], CATEGORIES_PERSONNEL[$p['categorie']] ?? $p['categorie'], $p['fonction'] ?? '', $p['ecole_nom'] ?? '', $p['type_ecole'] ?? '',
+            $identifiant($p), $p['emploi'] ?? '', $p['niveau_tenu'] ?? '', $p['disponibilite'] ?? '', $telephones($p['telephone'] ?? '')];
+    }
+    exporterVue('Liste du personnel', ['Nom', 'Prénoms', 'Sexe', 'Catégorie', 'Fonction', 'École', 'Secteur', 'Matricule / N° d\'autorisation', 'Emploi', 'Niveau tenu', 'Disponibilité', 'Téléphone'],
+        $lignes, $formatExport, ['sous_titre' => $filtresTexte, 'nom_fichier' => 'liste_personnel']);
+}
+
 $ecoles = $pdo->query("SELECT id, nom FROM ecoles ORDER BY nom ASC")->fetchAll();
 
 $stats = $pdo->query("
@@ -434,6 +492,10 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>👥 Gestion du Personnel</h2>
     <div>
+        <span class="me-2"><?= boutonExportVue([
+            ['type' => 'effectifs', 'titre' => 'Effectifs du personnel par école', 'aide' => 'Hommes, femmes, directeurs, en activité (avec les filtres actuels)'],
+            ['type' => 'depot', 'titre' => 'Écoles : liste déposée ou non', 'aide' => 'Toutes les écoles, avec le nombre d\'enseignants reçus'],
+        ]) ?></span>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel, Word ou PDF)</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter</button>
     </div>

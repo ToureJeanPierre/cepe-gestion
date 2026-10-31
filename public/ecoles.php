@@ -9,6 +9,7 @@ require_once __DIR__ . '/../src/groupe_scolaire_helpers.php';
 require_once __DIR__ . '/../src/telephone_helpers.php';
 require_once __DIR__ . '/../src/dfa_helpers.php';
 require_once __DIR__ . '/../src/pdf_helpers.php';
+require_once __DIR__ . '/../src/export_vue.php';
 
 // ==========================================
 // TRAITEMENT : IMPORTATION EXCEL
@@ -261,6 +262,40 @@ $ecoles = $pdo->prepare($sql);
 $ecoles->execute($params);
 $ecoles = $ecoles->fetchAll();
 
+// ==========================================
+// EXPORT (Excel / PDF) : exactement la liste affichée, avec ses filtres
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $filtresTexte = resumeFiltres(['Statut' => $filtreStatut, 'Recherche' => $filtreRecherche]);
+    $telephones = fn ($t) => implode(' / ', extraireNumerosTelephone($t));
+    if (exportType() === 'depots') {
+        // Qui a déposé quoi : candidats et personnel reçus par école (année consultée).
+        $parEcole = function (string $sql) use ($pdo, $anneeId): array {
+            $st = $pdo->prepare($sql);
+            $st->execute([$anneeId]);
+            return $st->fetchAll(PDO::FETCH_KEY_PAIR);
+        };
+        $nbC = $parEcole("SELECT ecole_id, COUNT(*) FROM candidats WHERE annee_id = ? AND est_candidat_libre = 0 AND ecole_id IS NOT NULL GROUP BY ecole_id");
+        $nbP = $parEcole("SELECT ecole_id, COUNT(*) FROM personnel WHERE annee_id = ? AND categorie = 'enseignant' AND ecole_id IS NOT NULL GROUP BY ecole_id");
+        $lignes = [];
+        foreach ($ecoles as $e) {
+            $c = (int) ($nbC[$e['id']] ?? 0);
+            $p = (int) ($nbP[$e['id']] ?? 0);
+            $lignes[] = [$e['nom'], $e['statut'], $c, $p, $c > 0 ? 'Oui' : 'Non', $p > 0 ? 'Oui' : 'Non'];
+        }
+        exporterVue('Dépôts des écoles : candidats et personnel', ['École', 'Statut', 'Candidats reçus', 'Enseignants reçus', 'Candidats déposés ?', 'Personnel déposé ?'], $lignes, $formatExport,
+            ['sous_titre' => $filtresTexte . ' — année ' . $ANNEE_SCOLAIRE, 'totaux' => [2, 3], 'nom_fichier' => 'depots_ecoles']);
+    }
+    $rattachement = fn ($e) => match ($e['type_rattachement']) { 'arrimee' => 'Arrimée', 'sans_code_dsps' => 'Sans code DSPS', 'candidats_libres' => 'Candidats libres', default => '' };
+    $lignes = [];
+    foreach ($ecoles as $e) {
+        $lignes[] = [$e['nom'], $e['statut'], $e['code_dsps'] ?? '', $e['nom_tuteur'] ?? '', $rattachement($e), $e['groupe_scolaire'] ?? '',
+            $e['directeur_nom'] ?? '', $telephones($e['directeur_telephone'] ?? ''), (int) $e['effectif_general'], (int) $e['nb_candidats'], $e['est_centre_examen'] ? 'Oui' : 'Non'];
+    }
+    exporterVue('Liste des écoles', ['Nom de l\'école', 'Statut', 'Code DSPS', 'École tutrice', 'Rattachement', 'Groupe scolaire', 'Directeur', 'Téléphone', 'Effectif déclaré', 'Candidats reçus', 'Centre d\'examen'],
+        $lignes, $formatExport, ['sous_titre' => $filtresTexte, 'totaux' => [8, 9], 'nom_fichier' => 'liste_ecoles']);
+}
+
 // Nombre d'élèves à remonter par DFA, par école (bilan stocké, année consultée).
 $recapDfa = $anneeId ? recapBilanParEcole($pdo, (int) $anneeId) : [];
 
@@ -291,7 +326,10 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>🏫 Module Écoles</h2>
     <div>
-        <a href="export_ecoles.php" class="btn btn-outline-success me-2"><i class="bi bi-file-earmark-arrow-down"></i> Exporter Excel</a>
+        <span class="me-2"><?= boutonExportVue([
+            ['type' => 'depots', 'titre' => 'Dépôts : candidats et personnel par école', 'aide' => 'Qui a déposé, qui n\'a rien envoyé (avec le filtre Public / Privé actuel)'],
+            ['url' => 'export_ecoles.php', 'titre' => 'Fichier complet ré-importable', 'aide' => 'Toutes les écoles, même format que l\'import Excel'],
+        ]) ?></span>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-excel"></i> Importer Excel</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Nouvelle École</button>
     </div>

@@ -9,6 +9,8 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 $pageTitle = 'Gestion des Candidats CEPE';
 
 require_once __DIR__ . '/../src/depots_helpers.php';
+require_once __DIR__ . '/../src/export_vue.php';
+require_once __DIR__ . '/../src/telephone_helpers.php';
 
 // Les candidats sont rattachés à l'année scolaire consultée ($anneeId, résolu par
 // config/database.php). Toute écriture est bloquée si cette année est archivée.
@@ -291,7 +293,11 @@ if ($filtreEcole === 'libres') {
     $sql .= " AND c.ecole_id = ?";
     $params[] = $filtreEcole;
 }
-if ($filtreStatut) {
+if ($filtreStatut === 'avec_matricule') {
+    $sql .= " AND c.matricule_dsps IS NOT NULL AND TRIM(c.matricule_dsps) <> ''";
+} elseif ($filtreStatut === 'sans_matricule') {
+    $sql .= " AND (c.matricule_dsps IS NULL OR TRIM(c.matricule_dsps) = '')";
+} elseif ($filtreStatut) {
     $sql .= " AND c.statut_demande = ?";
     $params[] = $filtreStatut;
 }
@@ -312,6 +318,76 @@ $sql .= " ORDER BY c.nom ASC";
 $candidats = $pdo->prepare($sql);
 $candidats->execute($params);
 $candidats = $candidats->fetchAll();
+
+// ==========================================
+// EXPORT (Excel / PDF) : exactement la liste affichée, avec ses filtres
+// ==========================================
+if ($formatExport = exportDemande()) {
+    $libellesStatut = ['non_entamee' => 'Demande non faite', 'en_cours' => 'En cours', 'faite' => 'Faite',
+        'avec_matricule' => 'Avec matricule (immatriculés)', 'sans_matricule' => 'Sans matricule (non immatriculés)'];
+    $nomEcoleExport = '';
+    if ($filtreEcole === 'libres') {
+        $nomEcoleExport = 'Candidats libres';
+    } elseif ($filtreEcole) {
+        $stNom = $pdo->prepare("SELECT nom FROM ecoles WHERE id = ?");
+        $stNom->execute([$filtreEcole]);
+        $nomEcoleExport = (string) $stNom->fetchColumn();
+    }
+    $filtresTexte = resumeFiltres([
+        'École' => $nomEcoleExport, 'Immatriculation' => $libellesStatut[$filtreStatut] ?? '',
+        'Candidature' => $filtreValidation === 'valide' ? 'Validés' : ($filtreValidation === 'non_valide' ? 'Non validés' : ''), 'Recherche' => $filtreRecherche,
+    ]) . ' — année ' . $ANNEE_SCOLAIRE;
+    $telephones = fn ($t) => implode(' / ', extraireNumerosTelephone($t));
+
+    if (exportType() === 'effectifs') {
+        // Effectifs par école, calculés sur la liste affichée (donc sur les filtres actuels).
+        $groupes = [];
+        foreach ($candidats as $c) {
+            $k = $c['est_candidat_libre'] ? 'Candidats libres' : ($c['nom_ecole'] ?: '(sans école)');
+            $g = &$groupes[$k];
+            $g = $g ?? ['total' => 0, 'garcons' => 0, 'filles' => 0, 'avec' => 0, 'sans' => 0, 'valides' => 0];
+            $g['total']++;
+            $g[$c['sexe'] === 'F' ? 'filles' : 'garcons']++;
+            $g[trim((string) $c['matricule_dsps']) !== '' ? 'avec' : 'sans']++;
+            if ($c['est_valide']) { $g['valides']++; }
+            unset($g);
+        }
+        ksort($groupes);
+        $lignes = [];
+        foreach ($groupes as $nom => $g) {
+            $lignes[] = [$nom, $g['total'], $g['garcons'], $g['filles'], $g['avec'], $g['sans'], $g['valides']];
+        }
+        exporterVue('Effectifs des candidats par école', ['École', 'Effectif', 'Garçons', 'Filles', 'Immatriculés (avec matricule)', 'Non immatriculés', 'Candidatures validées'], $lignes, $formatExport,
+            ['sous_titre' => $filtresTexte, 'totaux' => [1, 2, 3, 4, 5, 6], 'nom_fichier' => 'effectifs_candidats']);
+    }
+    if (exportType() === 'depot') {
+        // Toutes les écoles : ont-elles déposé leur liste de candidats ?
+        $st = $pdo->prepare("SELECT e.nom, e.statut, e.directeur_nom, e.directeur_telephone, COUNT(c.id) AS nb
+            FROM ecoles e LEFT JOIN candidats c ON c.ecole_id = e.id AND c.annee_id = ? AND c.est_candidat_libre = 0
+            GROUP BY e.id ORDER BY e.nom");
+        $st->execute([$anneeId]);
+        $lignes = [];
+        foreach ($st->fetchAll() as $e) {
+            $lignes[] = [$e['nom'], $e['statut'], (int) $e['nb'], (int) $e['nb'] > 0 ? 'Oui' : 'Non', $e['directeur_nom'] ?? '', $telephones($e['directeur_telephone'] ?? '')];
+        }
+        exporterVue('Écoles : liste des candidats déposée ou non', ['École', 'Secteur', 'Candidats reçus', 'Liste déposée ?', 'Directeur', 'Téléphone'], $lignes, $formatExport,
+            ['sous_titre' => 'Toutes les écoles — année ' . $ANNEE_SCOLAIRE, 'totaux' => [2], 'nom_fichier' => 'depot_candidats']);
+    }
+
+    $centresLibres = $pdo->prepare("SELECT c.id, e.nom FROM centres c JOIN ecoles e ON e.id = c.ecole_id WHERE c.annee_id = ?");
+    $centresLibres->execute([$anneeId]);
+    $nomsCentres = $centresLibres->fetchAll(PDO::FETCH_KEY_PAIR);
+    $lignes = [];
+    foreach ($candidats as $c) {
+        $lignes[] = [$c['nom'], $c['prenoms'], $c['sexe'], $c['est_candidat_libre'] ? 'Candidat libre' : ($c['nom_ecole'] ?? ''),
+            $c['est_candidat_libre'] ? ($nomsCentres[$c['centre_examen_id']] ?? '') : '',
+            $c['date_naissance'] ? date('d/m/Y', strtotime($c['date_naissance'])) : '', $c['lieu_naissance'] ?? '', $c['nationalite'] ?? '',
+            $c['matricule_dsps'] ?? '', $c['a_acte_naissance'] ? 'Oui' : 'Non', $libellesStatut[$c['statut_demande']] ?? $c['statut_demande'],
+            $c['matricule_verifie'] ? 'Oui' : 'Non', $c['droits_payes'] ? 'Oui' : 'Non', $c['est_valide'] ? 'Validé' : 'Non validé'];
+    }
+    exporterVue('Liste des candidats', ['Nom', 'Prénoms', 'Sexe', 'École', 'Centre d\'examen (libres)', 'Date de naissance', 'Lieu de naissance', 'Nationalité', 'Matricule DSPS', 'Acte de naissance',
+        'Demande d\'immatriculation', 'Matricule vérifié', 'Droits payés', 'Candidature'], $lignes, $formatExport, ['sous_titre' => $filtresTexte, 'nom_fichier' => 'liste_candidats', 'orientation' => 'landscape']);
+}
 
 // STATISTIQUES — suivent exactement le(s) même(s) filtre(s) que la liste ci-dessus
 $sqlStats = "SELECT 
@@ -387,6 +463,10 @@ include '../views/layouts/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>🎓 Candidats CEPE</h2>
     <div>
+        <span class="me-2"><?= boutonExportVue([
+            ['type' => 'effectifs', 'titre' => 'Effectifs par école', 'aide' => 'Garçons, filles, immatriculés, non immatriculés (avec les filtres actuels)'],
+            ['type' => 'depot', 'titre' => 'Écoles : liste de candidats déposée ou non', 'aide' => 'Toutes les écoles, avec le nombre de candidats reçus'],
+        ]) ?></span>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel, Word ou PDF)</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter Manuellement</button>
     </div>
@@ -475,7 +555,9 @@ include '../views/layouts/header.php';
         <label class="form-label">Statut Immatriculation</label>
         <select name="statut" class="form-select" onchange="this.form.submit()">
             <option value="">Tous</option>
-            <option value="faite" <?= $filtreStatut=='faite'?'selected':'' ?>>Immatriculés</option>
+            <option value="avec_matricule" <?= $filtreStatut=='avec_matricule'?'selected':'' ?>>Immatriculés (avec matricule)</option>
+            <option value="sans_matricule" <?= $filtreStatut=='sans_matricule'?'selected':'' ?>>Non immatriculés (sans matricule)</option>
+            <option value="faite" <?= $filtreStatut=='faite'?'selected':'' ?>>Demande faite</option>
             <option value="non_entamee" <?= $filtreStatut=='non_entamee'?'selected':'' ?>>Demande non faite</option>
             <option value="en_cours" <?= $filtreStatut=='en_cours'?'selected':'' ?>>En cours</option>
         </select>
