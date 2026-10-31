@@ -419,18 +419,8 @@ if ($formatExport = exportDemande()) {
         exporterVue('Effectifs du personnel par école', ['École', 'Secteur', 'Effectif', 'Hommes', 'Femmes', 'Directeurs', 'En activité', 'Congé / absent'], $lignes, $formatExport,
             ['sous_titre' => $filtresTexte, 'totaux' => [2, 3, 4, 5, 6, 7], 'nom_fichier' => 'effectifs_personnel']);
     }
-    if (exportType() === 'depot') {
-        // Toutes les écoles : ont-elles déposé leur liste d'enseignants ?
-        $st = $pdo->prepare("SELECT e.nom, e.statut, e.directeur_nom, e.directeur_telephone, COUNT(p.id) AS nb
-            FROM ecoles e LEFT JOIN personnel p ON p.ecole_id = e.id AND p.annee_id = ? AND p.categorie = 'enseignant'
-            GROUP BY e.id ORDER BY e.nom");
-        $st->execute([$anneeId]);
-        $lignes = [];
-        foreach ($st->fetchAll() as $e) {
-            $lignes[] = [$e['nom'], $e['statut'], (int) $e['nb'], (int) $e['nb'] > 0 ? 'Oui' : 'Non', $e['directeur_nom'] ?? '', $telephones($e['directeur_telephone'] ?? '')];
-        }
-        exporterVue('Écoles : liste des enseignants déposée ou non', ['École', 'Secteur', 'Enseignants reçus', 'Liste déposée ?', 'Directeur', 'Téléphone'], $lignes, $formatExport,
-            ['sous_titre' => 'Toutes les écoles — année ' . $ANNEE_SCOLAIRE, 'totaux' => [2], 'nom_fichier' => 'depot_personnel']);
+    if (in_array(exportType(), ['depose', 'non_depose'], true)) {
+        exporterDepotEcoles($pdo, (int) $anneeId, 'personnel', exportType() === 'depose', $formatExport, null, $ANNEE_SCOLAIRE);
     }
     $lignes = [];
     foreach ($personnels as $p) {
@@ -494,7 +484,8 @@ include '../views/layouts/header.php';
     <div>
         <span class="me-2"><?= boutonExportVue([
             ['type' => 'effectifs', 'titre' => 'Effectifs du personnel par école', 'aide' => 'Hommes, femmes, directeurs, en activité (avec les filtres actuels)'],
-            ['type' => 'depot', 'titre' => 'Écoles : liste déposée ou non', 'aide' => 'Toutes les écoles, avec le nombre d\'enseignants reçus'],
+            ['type' => 'depose', 'titre' => 'Écoles qui ONT déposé leur liste d\'enseignants', 'aide' => 'Avec le nombre reçu et la date du dernier dépôt'],
+            ['type' => 'non_depose', 'titre' => 'Écoles qui N\'ONT PAS déposé', 'aide' => 'Avec le directeur et son téléphone, pour les relancer'],
         ]) ?></span>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel, Word ou PDF)</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter</button>

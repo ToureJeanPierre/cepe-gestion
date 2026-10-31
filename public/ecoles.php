@@ -268,23 +268,8 @@ $ecoles = $ecoles->fetchAll();
 if ($formatExport = exportDemande()) {
     $filtresTexte = resumeFiltres(['Statut' => $filtreStatut, 'Recherche' => $filtreRecherche]);
     $telephones = fn ($t) => implode(' / ', extraireNumerosTelephone($t));
-    if (exportType() === 'depots') {
-        // Qui a déposé quoi : candidats et personnel reçus par école (année consultée).
-        $parEcole = function (string $sql) use ($pdo, $anneeId): array {
-            $st = $pdo->prepare($sql);
-            $st->execute([$anneeId]);
-            return $st->fetchAll(PDO::FETCH_KEY_PAIR);
-        };
-        $nbC = $parEcole("SELECT ecole_id, COUNT(*) FROM candidats WHERE annee_id = ? AND est_candidat_libre = 0 AND ecole_id IS NOT NULL GROUP BY ecole_id");
-        $nbP = $parEcole("SELECT ecole_id, COUNT(*) FROM personnel WHERE annee_id = ? AND categorie = 'enseignant' AND ecole_id IS NOT NULL GROUP BY ecole_id");
-        $lignes = [];
-        foreach ($ecoles as $e) {
-            $c = (int) ($nbC[$e['id']] ?? 0);
-            $p = (int) ($nbP[$e['id']] ?? 0);
-            $lignes[] = [$e['nom'], $e['statut'], $c, $p, $c > 0 ? 'Oui' : 'Non', $p > 0 ? 'Oui' : 'Non'];
-        }
-        exporterVue('Dépôts des écoles : candidats et personnel', ['École', 'Statut', 'Candidats reçus', 'Enseignants reçus', 'Candidats déposés ?', 'Personnel déposé ?'], $lignes, $formatExport,
-            ['sous_titre' => $filtresTexte . ' — année ' . $ANNEE_SCOLAIRE, 'totaux' => [2, 3], 'nom_fichier' => 'depots_ecoles']);
+    if (preg_match('/^(non_)?depose_(candidats|personnel)$/', exportType(), $m)) {
+        exporterDepotEcoles($pdo, (int) $anneeId, $m[2], $m[1] === '', $formatExport, array_column($ecoles, 'id'), $ANNEE_SCOLAIRE, $filtresTexte);
     }
     $rattachement = fn ($e) => match ($e['type_rattachement']) { 'arrimee' => 'Arrimée', 'sans_code_dsps' => 'Sans code DSPS', 'candidats_libres' => 'Candidats libres', default => '' };
     $lignes = [];
@@ -327,7 +312,10 @@ include '../views/layouts/header.php';
     <h2>🏫 Module Écoles</h2>
     <div>
         <span class="me-2"><?= boutonExportVue([
-            ['type' => 'depots', 'titre' => 'Dépôts : candidats et personnel par école', 'aide' => 'Qui a déposé, qui n\'a rien envoyé (avec le filtre Public / Privé actuel)'],
+            ['type' => 'depose_candidats', 'titre' => 'Ont déposé leurs candidats', 'aide' => 'Avec le filtre Public / Privé actuel'],
+            ['type' => 'non_depose_candidats', 'titre' => 'N\'ont PAS déposé leurs candidats', 'aide' => 'Avec le directeur et son téléphone'],
+            ['type' => 'depose_personnel', 'titre' => 'Ont déposé leur personnel'],
+            ['type' => 'non_depose_personnel', 'titre' => 'N\'ont PAS déposé leur personnel'],
             ['url' => 'export_ecoles.php', 'titre' => 'Fichier complet ré-importable', 'aide' => 'Toutes les écoles, même format que l\'import Excel'],
         ]) ?></span>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-excel"></i> Importer Excel</button>

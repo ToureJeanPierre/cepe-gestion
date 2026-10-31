@@ -7,6 +7,7 @@
 // export_type=<nom>.
 require_once __DIR__ . '/../vendor/autoload.php'; // Excel (PhpSpreadsheet) et PDF (Dompdf), même si la page ne les chargeait pas
 require_once __DIR__ . '/pdf_letterhead.php';
+require_once __DIR__ . '/telephone_helpers.php';
 
 if (!function_exists('exportDemande')) {
     /** 'xlsx', 'pdf' ou null selon l'adresse. */
@@ -252,5 +253,46 @@ if (!function_exists('exporterVuePdf')) {
         $police = $dompdf->getFontMetrics()->getFont('DejaVu Sans');
         $canvas->page_text($canvas->get_width() - 90, $canvas->get_height() - 24, 'Page {PAGE_NUM} / {PAGE_COUNT}', $police, 8, [0.3, 0.3, 0.3]);
         $dompdf->stream($base . '.pdf', ['Attachment' => false]);
+    }
+}
+
+if (!function_exists('exporterDepotEcoles')) {
+    /**
+     * Deux listes SÉPARÉES : les écoles qui ont déposé leurs candidats (ou leur personnel), et celles qui n'ont rien déposé.
+     *
+     * @param string     $quoi       'candidats' ou 'personnel'
+     * @param bool       $deposees   true = écoles ayant déposé, false = écoles n'ayant PAS déposé
+     * @param int[]|null $idsEcoles  restreindre à ces écoles (ex. le filtre Public / Privé de la page), null = toutes
+     */
+    function exporterDepotEcoles(PDO $pdo, int $anneeId, string $quoi, bool $deposees, string $format, ?array $idsEcoles, string $anneeLibelle, string $filtresTexte = ''): void
+    {
+        $jointure = $quoi === 'candidats'
+            ? "LEFT JOIN candidats x ON x.ecole_id = e.id AND x.annee_id = ? AND x.est_candidat_libre = 0"
+            : "LEFT JOIN personnel x ON x.ecole_id = e.id AND x.annee_id = ? AND x.categorie = 'enseignant'";
+        $st = $pdo->prepare("
+            SELECT e.id, e.nom, e.statut, e.code_dsps, e.directeur_nom, e.directeur_telephone, t.nom AS tutrice, COUNT(x.id) AS nb, MAX(x.created_at) AS dernier
+            FROM ecoles e LEFT JOIN ecoles t ON t.id = e.ecole_tutrice_id
+            $jointure
+            GROUP BY e.id ORDER BY e.nom
+        ");
+        $st->execute([$anneeId]);
+        $toutes = array_filter($st->fetchAll(), fn ($e) => $idsEcoles === null || in_array((int) $e['id'], array_map('intval', $idsEcoles), true));
+        $retenues = array_values(array_filter($toutes, fn ($e) => ((int) $e['nb'] > 0) === $deposees));
+        $telephones = fn ($t) => implode(' / ', extraireNumerosTelephone((string) $t));
+        $objet = $quoi === 'candidats' ? 'leurs candidats' : 'leur liste d\'enseignants';
+        $sousTitre = trim(($filtresTexte !== '' ? $filtresTexte . ' — ' : '') . 'année ' . $anneeLibelle . ' — ' . count($retenues) . ' école(s) sur ' . count($toutes));
+        $lignes = [];
+        if ($deposees) {
+            foreach ($retenues as $e) {
+                $lignes[] = [$e['nom'], $e['statut'], (int) $e['nb'], $e['dernier'] ? date('d/m/Y', strtotime($e['dernier'])) : '', $e['directeur_nom'] ?? '', $telephones($e['directeur_telephone'])];
+            }
+            exporterVue('Écoles ayant déposé ' . $objet, ['École', 'Secteur', $quoi === 'candidats' ? 'Candidats reçus' : 'Enseignants reçus', 'Dernier dépôt', 'Directeur', 'Téléphone'],
+                $lignes, $format, ['sous_titre' => $sousTitre, 'totaux' => [2], 'libelle_total' => 'TOTAL REÇU', 'nom_fichier' => 'ont_depose_' . $quoi]);
+        }
+        foreach ($retenues as $e) {
+            $lignes[] = [$e['nom'], $e['statut'], $e['code_dsps'] ?? '', $e['tutrice'] ?? '', $e['directeur_nom'] ?? '', $telephones($e['directeur_telephone'])];
+        }
+        exporterVue('Écoles n\'ayant PAS déposé ' . $objet, ['École', 'Secteur', 'Code DSPS', 'École tutrice', 'Directeur', 'Téléphone'],
+            $lignes, $format, ['sous_titre' => $sousTitre, 'nom_fichier' => 'pas_depose_' . $quoi]);
     }
 }
