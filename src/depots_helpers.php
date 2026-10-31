@@ -92,6 +92,10 @@ if (!function_exists('urlRetourImport')) {
         if (($_POST['retour'] ?? '') === 'controle_depots') {
             return 'controle_depots.php?analyser=1&msg=' . urlencode($msg);
         }
+        // Import groupé : retour sur une réponse légère (JSON), pas sur la grosse page de liste rechargée à chaque fichier.
+        if (($_POST['retour'] ?? '') === 'import_groupe') {
+            return 'import_groupe.php?type=' . urlencode(($_POST['type_groupe'] ?? '') === 'personnel' ? 'personnel' : 'candidats') . '&msg=' . urlencode($msg);
+        }
         return $pageParDefaut . '?msg=' . urlencode($msg);
     }
 }
@@ -173,11 +177,11 @@ if (!function_exists('lireDepotPdf')) {
      *
      * @return array{ok: bool, erreur: ?string, type: ?string, ecole_texte: ?string, contact: ?string, lignes: array, rows: array}
      */
-    function lireDepotPdf(string $chemin): array
+    function lireDepotPdf(string $chemin, bool $cache = true): array
     {
         $res = ['ok' => false, 'erreur' => null, 'type' => null, 'ecole_texte' => null, 'contact' => null, 'lignes' => [], 'rows' => []];
         try {
-            $pdf = extrairePdf($chemin);
+            $pdf = extrairePdf($chemin, $cache);
             if (!$pdf['ok']) {
                 $res['erreur'] = $pdf['erreur'];
                 return $res;
@@ -409,6 +413,83 @@ if (!function_exists('listerFichiersDepot')) {
     }
 }
 
+if (!function_exists('ecolesPourProposition')) {
+    /** @return array<int, array{id: int, nom: string, jetons: string[]}> les écoles avec leurs mots distinctifs (pour reconnaître l'école d'un fichier) */
+    function ecolesPourProposition(PDO $pdo): array
+    {
+        $ecoles = [];
+        foreach ($pdo->query("SELECT id, nom FROM ecoles ORDER BY nom")->fetchAll() as $e) {
+            $ecoles[(int) $e['id']] = ['id' => (int) $e['id'], 'nom' => $e['nom'], 'jetons' => jetonsNomEcole($e['nom'])];
+        }
+        return $ecoles;
+    }
+}
+
+if (!function_exists('analyserFichierListe')) {
+    /**
+     * Analyse UN fichier de liste Word ou PDF : type (candidats / personnel), école proposée, nombre de lignes, déjà en base / nouveaux, statut.
+     * Complète et renvoie le tableau $f décrivant le fichier (clés : nom, ext, statut, type, ecole_texte, ecole_id, ecole_sure, ecoles_possibles, total, deja, nouveaux, doublons_fichier, erreur).
+     * $ecoleForcee : école imposée par l'utilisateur (choisie à la main), elle remplace la proposition.
+     */
+    function analyserFichierListe(PDO $pdo, int $anneeId, string $chemin, array $f, array $ecoles, ?int $ecoleForcee = null, bool $cachePdf = true): array
+    {
+        $lu = $f['ext'] === 'pdf' ? lireDepotPdf($chemin, $cachePdf) : lireDepotWord($chemin);
+        $f['type'] = $lu['type'];
+        $f['ecole_texte'] = $lu['ecole_texte'];
+        if (!$lu['ok']) {
+            $f['statut'] = 'illisible';
+            $f['erreur'] = $lu['erreur'];
+        } elseif ($lu['type'] === null) {
+            $f['statut'] = 'non_reconnu';
+        } else {
+            // École : le texte "ECOLE :" du document d'abord, le nom du fichier en secours.
+            $sources = [];
+            if ($lu['ecole_texte'] !== null) {
+                $sources[] = proposerEcole($ecoles, jetonsNomEcole($lu['ecole_texte']));
+            }
+            $sources[] = proposerEcole($ecoles, jetonsNomEcole($f['nom'], true));
+            $choix = null;
+            foreach ($sources as $s) {
+                if ($s['sure']) {
+                    $choix = $s;
+                    break;
+                }
+            }
+            if ($choix === null) {
+                foreach ($sources as $s) {
+                    if ($s['ids']) {
+                        $choix = $s;
+                        break;
+                    }
+                }
+            }
+            if ($choix && $choix['ids']) {
+                $f['ecoles_possibles'] = array_slice($choix['ids'], 0, 6);
+                if ($choix['sure']) {
+                    $f['ecole_id'] = (int) $choix['ids'][0];
+                    $f['ecole_sure'] = true;
+                }
+            }
+            if ($ecoleForcee !== null && isset($ecoles[$ecoleForcee])) {
+                $f['ecole_id'] = $ecoleForcee;
+                $f['ecole_sure'] = true;
+            }
+            $cmp = comparerDepotAvecBase($pdo, $anneeId, $lu['type'], $lu['rows'], $f['ecole_id']);
+            $f = array_merge($f, $cmp);
+            if ($cmp['total'] === 0) {
+                $f['statut'] = 'vide';
+            } elseif ($cmp['nouveaux'] === 0) {
+                $f['statut'] = 'deja';
+            } elseif ($cmp['deja'] > 0) {
+                $f['statut'] = 'partiel';
+            } else {
+                $f['statut'] = 'nouveau';
+            }
+        }
+        return $f;
+    }
+}
+
 if (!function_exists('analyserDossierDepots')) {
     /**
      * @return array{fichiers: array, ecoles: array, resume: array, dossier_ok: bool}
@@ -416,11 +497,7 @@ if (!function_exists('analyserDossierDepots')) {
     function analyserDossierDepots(PDO $pdo, int $anneeId, string $dossier): array
     {
         $dossierOk = is_dir($dossier);
-        $ecolesBase = $pdo->query("SELECT id, nom FROM ecoles ORDER BY nom")->fetchAll();
-        $ecoles = [];
-        foreach ($ecolesBase as $e) {
-            $ecoles[(int) $e['id']] = ['id' => (int) $e['id'], 'nom' => $e['nom'], 'jetons' => jetonsNomEcole($e['nom'])];
-        }
+        $ecoles = ecolesPourProposition($pdo);
 
         $fichiers = [];
         foreach (listerFichiersDepot($dossier) as $f) {
@@ -431,55 +508,7 @@ if (!function_exists('analyserDossierDepots')) {
                 'erreur' => null, 'meme_fichier_que' => null];
 
             if (in_array($f['ext'], ['docx', 'pdf'], true)) {
-                $lu = $f['ext'] === 'pdf' ? lireDepotPdf($chemin) : lireDepotWord($chemin);
-                $f['type'] = $lu['type'];
-                $f['ecole_texte'] = $lu['ecole_texte'];
-                if (!$lu['ok']) {
-                    $f['statut'] = 'illisible';
-                    $f['erreur'] = $lu['erreur'];
-                } elseif ($lu['type'] === null) {
-                    $f['statut'] = 'non_reconnu';
-                } else {
-                    // École : le texte "ECOLE :" du document d'abord, le nom du fichier en secours.
-                    $sources = [];
-                    if ($lu['ecole_texte'] !== null) {
-                        $sources[] = proposerEcole($ecoles, jetonsNomEcole($lu['ecole_texte']));
-                    }
-                    $sources[] = proposerEcole($ecoles, jetonsNomEcole($f['nom'], true));
-                    $choix = null;
-                    foreach ($sources as $s) {
-                        if ($s['sure']) {
-                            $choix = $s;
-                            break;
-                        }
-                    }
-                    if ($choix === null) {
-                        foreach ($sources as $s) {
-                            if ($s['ids']) {
-                                $choix = $s;
-                                break;
-                            }
-                        }
-                    }
-                    if ($choix && $choix['ids']) {
-                        $f['ecoles_possibles'] = array_slice($choix['ids'], 0, 6);
-                        if ($choix['sure']) {
-                            $f['ecole_id'] = (int) $choix['ids'][0];
-                            $f['ecole_sure'] = true;
-                        }
-                    }
-                    $cmp = comparerDepotAvecBase($pdo, $anneeId, $lu['type'], $lu['rows'], $f['ecole_id']);
-                    $f = array_merge($f, $cmp);
-                    if ($cmp['total'] === 0) {
-                        $f['statut'] = 'vide';
-                    } elseif ($cmp['nouveaux'] === 0) {
-                        $f['statut'] = 'deja';
-                    } elseif ($cmp['deja'] > 0) {
-                        $f['statut'] = 'partiel';
-                    } else {
-                        $f['statut'] = 'nouveau';
-                    }
-                }
+                $f = analyserFichierListe($pdo, $anneeId, $chemin, $f, $ecoles);
             }
             $fichiers[] = $f;
         }

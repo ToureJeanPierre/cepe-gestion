@@ -487,6 +487,7 @@ include '../views/layouts/header.php';
             ['type' => 'depose', 'titre' => 'Écoles qui ONT déposé leur liste d\'enseignants', 'aide' => 'Avec le nombre reçu et la date du dernier dépôt'],
             ['type' => 'non_depose', 'titre' => 'Écoles qui N\'ONT PAS déposé', 'aide' => 'Avec le directeur et son téléphone, pour les relancer'],
         ]) ?></span>
+        <a href="import_groupe.php?type=personnel" class="btn btn-outline-success me-2" title="Importer plusieurs listes d'un coup"><i class="bi bi-files"></i> Import groupé</a>
         <button class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#modalImport"><i class="bi bi-file-earmark-arrow-up"></i> Importer (Excel, Word ou PDF)</button>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalAjout"><i class="bi bi-plus-circle"></i> Ajouter</button>
     </div>

@@ -1,7 +1,7 @@
 <?php
 // Configuration de la base de données pour Laragon
 $host = '127.0.0.1';
-$db   = 'cepe_gestion';
+$db   = getenv('CEPE_DB_NAME') ?: 'cepe_gestion'; // la variable n'existe pas en production ; sert aux tests sur une copie de la base
 $user = 'root';
 $pass = ''; // Par défaut, il n'y a pas de mot de passe sur Laragon
 $charset = 'utf8mb4';

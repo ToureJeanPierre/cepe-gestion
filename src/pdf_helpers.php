@@ -35,8 +35,11 @@ if (!function_exists('extrairePdf')) {
      *
      * @return array{ok: bool, erreur: ?string, texte: string, tableaux: array, caracteres: int}
      */
-    function extrairePdf(string $chemin): array
+    function extrairePdf(string $chemin, bool $cache = true): array
     {
+        if (!$cache) {
+            return extrairePdfSansCache($chemin);
+        }
         $cle = is_file($chemin) ? sha1(realpath($chemin) . '|' . filesize($chemin) . '|' . filemtime($chemin)) : null;
         $dossierCache = dirname(__DIR__) . '/storage/cache_pdf';
         if ($cle !== null && is_file("$dossierCache/$cle.json")) {
